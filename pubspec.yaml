@@ -9,10 +9,7 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
-  is_airlock_api:
-    git:
-      url: https://github.com/intersyntactic/airlock_api.git
-      ref: 4de52a9eb0f39dc0358762b8ba583505e6cef69a
+  is_airlock_api: ^0.2.0
   is_effects: ^0.1.0
   is_journal: ^0.4.0
   checked_json: ^0.2.1
@@ -21,9 +18,7 @@ dev_dependencies:
   lints: ^6.1.0
   test: ^1.25.0
 
-# is_airlock_api 0.2.0 is unpublished (git-pinned above), so this package
-# cannot publish to pub.dev until it is: pub refuses a publishable package
-# with a git dependency. `publish_to: none` until that pin becomes a
-# version; teams-module-e2 git-pins this repo at the ref this package
-# hands intersyntactic-a8.
+# The whole dependency chain (is_effects, is_airlock_api, is_journal) is
+# hosted now, so this package could publish. publish_to: none until Nick
+# says go — nothing here has asked for that yet.
 publish_to: none
