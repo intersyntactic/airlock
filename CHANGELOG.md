@@ -41,3 +41,9 @@
   pub.dev at all (not merely an outdated 0.1.0), so the hosted entry plus
   `dependency_overrides` pairing is structural, not optional — a consumer
   of this package over git must copy the override itself.
+- `bin/airlock_service.dart`: runs `witness` as its own process over a
+  Unix socket, for a host (the Teams relay) that can't hold a journal
+  itself without losing `dart compile exe` — `is_journal` can't run
+  compiled. One request, one response, one connection; never a success
+  on a failure. `SIGTERM`/`SIGINT` stop new connections, wait for
+  in-flight ones, then close the journal — never the other way around.

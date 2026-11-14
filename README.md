@@ -150,6 +150,38 @@ subprocess, not an HTTP call this process makes on its own behalf. That
 proxy stays in `intelligent-reporting`'s pipeline, forwarding each request
 through this same `prompt` call rather than its own `HttpClient`.
 
+## Running the airlock as its own service
+
+`bin/airlock_service.dart` runs `witness` as a standalone process, over a
+Unix socket, for a host that can't hold a journal itself — the Teams
+relay, once it stops compiling `is_journal` straight in. One client
+connection, one JSON request line (`{"source": ..., "bytes": ...}`), one
+JSON response line back: `{"id": ...}` once the journal's `add` has
+returned, or `{"error": ...}` on any failure — never a success on a
+failure, since a client unable to tell the two apart could carry on as
+though something had been recorded when nothing was.
+
+```
+AIRLOCK_JOURNAL_DIR=/var/lib/airlock/journal \
+AIRLOCK_SOCKET_PATH=/run/airlock/airlock.sock \
+  dart run bin/airlock_service.dart
+```
+
+The socket is created mode `600`; a systemd `RuntimeDirectory` with a
+narrower group is the intended deployment, not the mode alone. `SIGTERM`
+or `SIGINT` stops it from accepting new connections, waits for every
+connection already being handled to finish, then closes the journal and
+removes the socket file — a connection still in flight when the signal
+arrives is never asked to record into a journal that has already given
+up its claim.
+
+This runs from source, not compiled: `is_journal` can't run in a
+compiled build (it reads its own package's source to compute its code
+hash), so `dart compile exe` on anything that imports it fails at
+runtime. That's the whole reason this is a separate process: a relay
+that only talks to this service over the socket has no `is_journal`
+dependency of its own, and can go back to being compiled.
+
 ## Pin
 
 Depends on `is_airlock_api` 0.2.0 and `is_effects`, both pinned by git ref
