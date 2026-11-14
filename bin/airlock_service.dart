@@ -12,11 +12,15 @@
 /// Environment:
 ///   AIRLOCK_JOURNAL_DIR  the journal's directory (created if absent)
 ///   AIRLOCK_SOCKET_PATH  the Unix socket path to serve on (removed first
-///                        if a stale one is there; created with mode 600,
-///                        so only a process able to read it, or one run
-///                        as its owner, may connect — a systemd
-///                        RuntimeDirectory with a narrower group is the
-///                        intended deployment, not this alone)
+///                        if a stale one is there)
+///   AIRLOCK_SOCKET_MODE  the socket file's permission bits, as `chmod`
+///                        takes them; default `600` (owner only). A
+///                        client running as a different user — the
+///                        Teams relay, say — needs `660` plus the
+///                        socket's directory set up so the file lands in
+///                        the right group (a systemd `RuntimeDirectory`
+///                        with its group and the setgid bit is the
+///                        intended way, not this alone).
 library;
 
 import 'dart:async';
@@ -47,13 +51,14 @@ Future<void> main() async {
     return;
   }
 
+  final socketMode = Platform.environment['AIRLOCK_SOCKET_MODE'] ?? '600';
   final socketFile = File(socketPath);
   if (socketFile.existsSync()) socketFile.deleteSync();
   final server = await ServerSocket.bind(
     InternetAddress(socketPath, type: InternetAddressType.unix),
     0,
   );
-  await Process.run('chmod', ['600', socketPath]);
+  await Process.run('chmod', [socketMode, socketPath]);
   stderr.writeln('airlock service: witnessing on $socketPath');
 
   final stopping = Completer<void>();

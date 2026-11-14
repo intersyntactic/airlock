@@ -5,6 +5,8 @@
 # Conventional directory for build outputs.
 build/
 
-# Omit committing pubspec.lock for library packages; see
+# pubspec.lock is committed: this repo ships bin/airlock_service.dart as
+# an application, not just a library the way is_journal's own are, and a
+# compiled build's code hash should come from pinned versions, not
+# whatever dart pub get happens to resolve on the day. See
 # https://dart.dev/guides/libraries/private-files#pubspeclock.
-pubspec.lock
