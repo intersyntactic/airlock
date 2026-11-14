@@ -136,10 +136,10 @@ That let a sender hold a client of its own, which is exactly what
 witnessing arrivals never allows; `prompt` closes the same gap for what
 goes out. The record format — `model prompt`/`model reply`, the link, the
 per-provider `source`, `JourneyPathId` `pass` — is unchanged from
-`intelligent-reporting`'s original `CallTap`
-(pipeline/lib/src/record_prompts.dart in
-https://github.com/enspyrco/intelligent-reporting/pull/132); only who
-holds the connection moved.
+`intelligent-reporting`'s original `CallTap`; only who holds the
+connection moved. That pipeline PR (#132) never landed — Nick later
+ruled the pipeline keeps no model client of its own at all, agent loop
+included, so the port target moved with it.
 
 `PromptRecord.headers` is `MaskedHeaders`, not a bare `Map<String, String>`:
 the only way to one is `MaskedHeaders.of`, which masks on the way in, so
@@ -147,11 +147,15 @@ the type itself is the proof a credential was masked, not a comment next
 to a field that trusted every caller to remember. `masked` is exported
 too, for anything that wants the masking without the type.
 
-What this package deliberately does *not* send: `claude -p`'s own prompts
-go through a local proxy standing between it and the model, since it is a
+What this package does not yet send: `claude -p`'s own prompts go
+through a local proxy standing between it and the model, since it is a
 subprocess, not an HTTP call this process makes on its own behalf. That
-proxy stays in `intelligent-reporting`'s pipeline, forwarding each request
-through this same `prompt` call rather than its own `HttpClient`.
+proxy is not here yet — it lived in `intelligent-reporting`'s pipeline,
+but Nick has since ruled the pipeline keeps no model client at all, and
+the agent loop, the proxy and every way of reaching a model run wherever
+the journey runs instead. Where that lands, and whether `prompt` needs a
+streaming variant for it (the proxy relays a reply live, not once it is
+over), is still open.
 
 ## Running the airlock as its own service
 
