@@ -8,5 +8,15 @@
 /// path exists to record it, [RecordedAirlock.witness].
 library;
 
+// A caller can't build a RecordedAirlock without writing `decide`, which
+// returns a Decision (Allow, Deny, DecidedBy) over a Run — so these are
+// part of RecordedAirlock's interface in practice, not just its own. Dart
+// only lets a caller import its own direct dependencies, and is_airlock_api
+// and is_effects are pinned here for reasons specific to this repo (see
+// pubspec.yaml); re-exporting them keeps a caller from having to repeat
+// that pin itself, with the two drifting apart if it ever changes here.
+export 'package:is_airlock_api/is_airlock_api.dart';
+export 'package:is_effects/is_effects.dart';
+
 export 'src/arrival_source.dart';
 export 'src/recorded_airlock.dart';
