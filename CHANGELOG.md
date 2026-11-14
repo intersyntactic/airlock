@@ -49,8 +49,9 @@
   one connection; never a success on a failure. `SIGTERM`/`SIGINT` stop
   new connections, wait for in-flight ones, then close the journal —
   never the other way around.
-- Bump `is_journal` to 0.3.0 (git-pinned: not actually on pub.dev yet
-  despite a report that it was — see the pubspec comment), which can run
+- Bump `is_journal` to 0.3.0 — hosted; briefly git-pinned because
+  pub.dev's package listing lags a fresh publish by about ten minutes,
+  which read as "not published" until it caught up — which can run
   compiled given its code hash at build time. `WitnessService` answers an
   `ObjectNotKept` failure (the entry went in, its object did not)
   distinctly — `{"error": ..., "entry": ...}` — so a client knows not to
