@@ -1,0 +1,37 @@
+name: is_airlock
+description: >-
+  An Airlock that decides and records runs under is_airlock_api, witnessing
+  every arrival into an add-only journal before anything reads it.
+version: 0.1.0
+repository: https://github.com/intersyntactic/airlock
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  is_airlock_api:
+    git:
+      url: git@github.com:intersyntactic/airlock_api.git
+      ref: 7136de43de8b2ac036e2619c8ddd7793f1f57fab
+  is_effects: ^0.1.0
+  is_journal: ^0.2.0
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.25.0
+
+# is_airlock_api 0.2.0 is unpublished (git-pinned above), so this package
+# cannot publish to pub.dev until it is: pub refuses a publishable package
+# with a git dependency. `publish_to: none` until that pin becomes a
+# version; teams-module-e2 git-pins this repo at the ref this package
+# hands intersyntactic-a8.
+publish_to: none
+
+dependency_overrides:
+  # is_airlock_api 0.2.0 asks for is_effects ^0.1.0, but 0.1.0 on pub.dev
+  # predates the sending-out fields coming out of Args. Pinned past them
+  # until is_effects publishes past 0.1.0.
+  is_effects:
+    git:
+      url: git@github.com:intersyntactic/effects.git
+      ref: c6c50439eb5401fecb462ce55dc538942712b28c
