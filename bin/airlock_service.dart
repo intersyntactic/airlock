@@ -14,13 +14,17 @@
 ///   AIRLOCK_SOCKET_PATH  the Unix socket path to serve on (removed first
 ///                        if a stale one is there)
 ///   AIRLOCK_SOCKET_MODE  the socket file's permission bits, as `chmod`
-///                        takes them; default `600` (owner only). A
-///                        client running as a different user — the
-///                        Teams relay, say — needs `660` plus the
-///                        socket's directory set up so the file lands in
-///                        the right group (a systemd `RuntimeDirectory`
-///                        with its group and the setgid bit is the
-///                        intended way, not this alone).
+///                        takes them; default `600` (owner only). The
+///                        socket's group is whatever this process's own
+///                        group is — there is no separate group setting
+///                        here — so a client running as a different
+///                        user needs `660` plus that client's own unit
+///                        granted this one's group as a supplementary
+///                        group (systemd `SupplementaryGroups=`), not a
+///                        setgid bit on the socket's directory: a
+///                        `RuntimeDirectory` is already owned by its
+///                        unit's `User`/`Group`, which systemd gives it
+///                        no way to set apart from that unit's own.
 library;
 
 import 'dart:async';
