@@ -118,4 +118,17 @@ void main() {
     expect(ArrivalSource.parse('teams relay'), isNull);
     expect(ArrivalSource.parse('teams').toString(), 'teams');
   });
+
+  test('witness on a closed journal throws, so nothing is recorded', () {
+    final a = airlock();
+    journal.close();
+
+    expect(
+      () => a.witness(
+        Uint8List.fromList(utf8.encode('{}')),
+        source: ArrivalSource.parse('teams')!,
+      ),
+      throwsStateError,
+    );
+  });
 }
