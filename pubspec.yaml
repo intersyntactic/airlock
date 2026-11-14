@@ -11,7 +11,7 @@ environment:
 dependencies:
   is_airlock_api:
     git:
-      url: git@github.com:intersyntactic/airlock_api.git
+      url: https://github.com/intersyntactic/airlock_api.git
       ref: 7136de43de8b2ac036e2619c8ddd7793f1f57fab
   is_effects: ^0.1.0
   is_journal: ^0.2.0
@@ -33,5 +33,5 @@ dependency_overrides:
   # until is_effects publishes past 0.1.0.
   is_effects:
     git:
-      url: git@github.com:intersyntactic/effects.git
+      url: https://github.com/intersyntactic/effects.git
       ref: c6c50439eb5401fecb462ce55dc538942712b28c

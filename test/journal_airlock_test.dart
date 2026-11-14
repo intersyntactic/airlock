@@ -89,7 +89,7 @@ void main() {
 
       final id = a.witness(
         bytes,
-        source: 'teams',
+        source: ArrivalSource.parse('teams')!,
         at: DateTime.utc(2026, 11, 14),
       );
 
@@ -106,10 +106,16 @@ void main() {
     final a = airlock();
     final bytes = Uint8List.fromList(utf8.encode('same'));
 
-    a.witness(bytes, source: 'teams');
-    a.witness(bytes, source: 'teams');
+    a.witness(bytes, source: ArrivalSource.parse('teams')!);
+    a.witness(bytes, source: ArrivalSource.parse('teams')!);
 
     final check = journal.check() as Intact;
     expect(check.count, 2);
+  });
+
+  test('ArrivalSource refuses blank text and whitespace', () {
+    expect(ArrivalSource.parse(''), isNull);
+    expect(ArrivalSource.parse('teams relay'), isNull);
+    expect(ArrivalSource.parse('teams').toString(), 'teams');
   });
 }

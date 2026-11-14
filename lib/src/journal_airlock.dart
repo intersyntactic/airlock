@@ -5,6 +5,8 @@ import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_effects/is_effects.dart';
 import 'package:is_journal/is_journal.dart';
 
+import 'arrival_source.dart';
+
 /// An [Airlock] whose record is a [Journal]: an [Entry] is one journal entry,
 /// never written before its [Decided] or read before its [Returned], exactly
 /// as [Airlock.record]'s contract asks.
@@ -51,18 +53,21 @@ final class JournalAirlock<R> implements Airlock<R> {
   /// caller hands in here is what "exactly as it came" will mean once
   /// `Witnessed` exists, so a caller that has already parsed its arrival
   /// should witness the bytes it parsed from, not the fields it kept.
-  ObjectId witness(Uint8List bytes, {required String source, DateTime? at}) =>
-      _journal.add(
-        utf8.encode(
-          jsonEncode({
-            'witnessed': {
-              'at': (at ?? DateTime.now().toUtc()).toIso8601String(),
-              'source': source,
-              'bytes': base64Encode(bytes),
-            },
-          }),
-        ),
-      );
+  ObjectId witness(
+    Uint8List bytes, {
+    required ArrivalSource source,
+    DateTime? at,
+  }) => _journal.add(
+    utf8.encode(
+      jsonEncode({
+        'witnessed': {
+          'at': (at ?? DateTime.now().toUtc()).toIso8601String(),
+          'source': source.value,
+          'bytes': base64Encode(bytes),
+        },
+      }),
+    ),
+  );
 }
 
 /// One journal line for [entry]. Human-readable, per `is_journal`'s own

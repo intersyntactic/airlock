@@ -8,4 +8,5 @@
 /// path exists to record it, [JournalAirlock.witness].
 library;
 
+export 'src/arrival_source.dart';
 export 'src/journal_airlock.dart';

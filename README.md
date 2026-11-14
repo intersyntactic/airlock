@@ -36,8 +36,13 @@ anything reads an arrival — parses it, decides what it means, acts on it —
 `JournalAirlock.witness` records it, exactly as it came:
 
 ```dart
-airlock.witness(requestBodyBytes, source: 'teams');
+airlock.witness(requestBodyBytes, source: ArrivalSource.parse('teams')!);
 ```
+
+`source` is an [`ArrivalSource`](lib/src/arrival_source.dart), not a bare
+`String`: this package witnesses arrivals for whatever host embeds it, not
+Teams alone, so it doesn't close the set of sources over an enum — but a
+string that means something still gets a type.
 
 `is_airlock_api` 0.2.0 has no `Witnessed` entry for this; one is planned for
 0.3.0. Until then, `witness` writes the same three things a `Witnessed`
