@@ -12,3 +12,8 @@
   itself. Without the re-export, a caller would have to repeat this
   package's git pins on both to name them, with the two able to drift
   apart.
+- `RecordedAirlock.prompting`: records a prompt before it goes and its
+  reply once it ends, naming which prompt it answers, with its status,
+  headers and how it ended. A port of `intelligent-reporting`'s `CallTap`
+  (now `PromptTap`), moved here since recording what crosses the airlock
+  is this package's job.

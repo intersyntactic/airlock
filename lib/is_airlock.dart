@@ -4,8 +4,9 @@
 /// A journey path's decisions and outcomes are its own; what rules allow is
 /// the app's to say, so [RecordedAirlock] takes that policy as two functions
 /// rather than guessing at a shape for `R`. What it owns is the record: one
-/// line per [Entry], and, for what reaches the airlock before any journey
-/// path exists to record it, [RecordedAirlock.witness].
+/// line per [Entry]; for what reaches the airlock before any journey path
+/// exists to record it, [RecordedAirlock.witness]; and for what the airlock
+/// itself sends out and gets back, [RecordedAirlock.prompting].
 library;
 
 // A caller can't build a RecordedAirlock without writing `decide`, which
@@ -19,4 +20,5 @@ export 'package:is_airlock_api/is_airlock_api.dart';
 export 'package:is_effects/is_effects.dart';
 
 export 'src/arrival_source.dart';
+export 'src/prompt_recording.dart';
 export 'src/recorded_airlock.dart';

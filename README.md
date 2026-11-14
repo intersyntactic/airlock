@@ -73,6 +73,51 @@ parsed type's own shape leaves ambiguous (a chat reply's quote tag versus a
 everything either reading would need, so neither has to be trusted to have
 picked the right fields.
 
+## Recording a prompt
+
+Going out is as recordable as coming in. `RecordedAirlock.prompting` gives
+a `PromptTap` that writes the same airlock's journal:
+
+```dart
+final tap = airlock.prompting('journey-name');
+final reply = tap.sending(ArrivalSource.parse('claude')!, to, bodyBytes, headers);
+// ...send the request, feed the response to reply...
+reply.status(200, responseHeaders);
+reply.chunk(firstChunkBytes);
+reply.chunk(nextChunkBytes);
+reply.ended(const ReplyComplete());
+```
+
+A prompt is in the journal before it can go — `sending` throws, and then it
+must not go, rather than ever letting an unrecorded prompt out. A reply the
+journal can't take throws too, for the same reason: an answer with no
+record of how it arrived is not used. The reply's entry names the id of the
+prompt's entry (`PromptId`), so the journal can always say which answers
+which, and it carries the reply's status, headers and how it ended
+(`ReplyComplete`, `ReplyCancelled`, or `ReplyFailed` with why) — enough to
+read the reply's bytes back and use exactly the text that was recorded,
+never a copy made again from something else.
+
+This is a straight port of `intelligent-reporting`'s `CallTap`
+(now `PromptTap`, pipeline/lib/src/record_prompts.dart in
+https://github.com/enspyrco/intelligent-reporting/pull/132), moved into
+`is_airlock` since recording what crosses the airlock is this package's
+job, not the pipeline's. `source` is the same `ArrivalSource` `witness`
+takes; `claude` and `ollama` are separate sources, since which model
+answered is provenance, not incidental to it.
+
+`masked` is here too: a prompt's headers, with the `authorization` and
+`x-api-key` credential replaced by `[masked]` wherever its value appears,
+so a credential never has to be read back out of a prompt's own headers to
+be kept out of the record it was sent with.
+
+What this package deliberately does *not* record: `claude -p`'s own
+prompts go through a local proxy standing between it and the model, since
+it is a program, not an HTTP call this process makes. That proxy stays in
+`intelligent-reporting`'s pipeline — it is a process-facing concern, is_airlock
+stays a library an embedding process links in, and a journal's single
+writer means the proxy would still need its own open journal either way.
+
 ## Pin
 
 Depends on `is_airlock_api` 0.2.0 and `is_effects`, both pinned by git ref

@@ -6,6 +6,7 @@ import 'package:is_effects/is_effects.dart';
 import 'package:is_journal/is_journal.dart';
 
 import 'arrival_source.dart';
+import 'prompt_recording.dart';
 
 /// An [Airlock] whose record is a [Journal]: an [Entry] is one journal entry,
 /// never written before its [Decided] or read before its [Returned], exactly
@@ -68,6 +69,14 @@ final class RecordedAirlock<R> implements Airlock<R> {
       }),
     ),
   );
+
+  /// Records prompts made under [pass] in this airlock's journal: before
+  /// each goes up, no way to send it unrecorded, and the reply naming the
+  /// prompt it answers, with its status, headers and how it ended. Not
+  /// `witness`'s job — a reply's record needs more than bytes and a source,
+  /// and a prompt going out is not an arrival.
+  PromptTap prompting(String pass, {DateTime Function()? now}) =>
+      PromptTap(_journal, pass, now: now);
 }
 
 /// One journal line for [entry]. Human-readable, per `is_journal`'s own
