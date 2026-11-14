@@ -256,11 +256,12 @@ void main() {
   });
 
   group('RecordedAirlock.prompting', () {
-    RecordedAirlock<Object?> airlock() => RecordedAirlock<Object?>(
-      journal,
-      decide: (run, rules) => const Allow(by: DecidedBy.rules),
-      narrows: (fewer, rules) => true,
-    );
+    RecordedAirlock<Object?, Object?> airlock() =>
+        RecordedAirlock<Object?, Object?>(
+          journal,
+          decide: (run, rules) => const Allow(by: DecidedBy.rules),
+          narrows: (fewer, rules) => true,
+        );
 
     test('shares the airlock\'s own journal', () {
       final tap = airlock().prompting(pass, now: () => at);

@@ -1,6 +1,6 @@
 # is_airlock
 
-An [`Airlock<R>`](https://github.com/intersyntactic/airlock_api) whose
+An [`Airlock<R, P>`](https://github.com/intersyntactic/airlock_api) whose
 record is an add-only [`Journal`](https://github.com/intersyntactic/journal):
 every decision and outcome `Airlock.record` is given becomes one journal
 entry, and every arrival — before anything reads it — is witnessed into the
@@ -11,7 +11,7 @@ import 'package:is_airlock/is_airlock.dart';
 import 'package:is_journal/is_journal.dart';
 
 final journal = Journal.open(Directory('journal'))!;
-final airlock = RecordedAirlock<MyRules>(
+final airlock = RecordedAirlock<MyRules, MyPlace>(
   journal,
   decide: (run, rules) => rules.allows(run.reach)
       ? const Allow(by: DecidedBy.rules)
@@ -22,12 +22,14 @@ final airlock = RecordedAirlock<MyRules>(
 
 ## Policy is the app's, not this package's
 
-`Airlock<R>.decide` and `.narrows` need to know what `R`, the journey path's
-rules, actually allow — and `R` is whatever the app defines. Rather than
-guess at a shape for it, `RecordedAirlock` takes `decide` and `narrows` as
-functions. What this package owns is the record: durable, add-only, one
-writer at a time, chained and checked, because that part needs no app-specific
-knowledge to get right.
+`Airlock<R, P>.decide` and `.narrows` need to know what `R`, the journey
+path's rules, actually allow — and `R` is whatever the app defines. Rather
+than guess at a shape for it, `RecordedAirlock` takes `decide` and `narrows`
+as functions. What this package owns is the record: durable, add-only, one
+writer at a time, chained and checked, because that part needs no
+app-specific knowledge to get right. `P`, the host's place-in-a-turn type
+that every entry now carries, is likewise never read here — `RecordedAirlock`
+logs it however it prints, and nothing more.
 
 ## Witnessing an arrival
 
@@ -44,11 +46,12 @@ airlock.witness(requestBodyBytes, source: ArrivalSource.parse('teams')!);
 Teams alone, so it doesn't close the set of sources over an enum — but a
 string that means something still gets a type.
 
-`is_airlock_api` 0.2.0 has no `Witnessed` entry for this; one is planned for
-0.3.0. Until then, `witness` writes the same three things a `Witnessed`
-entry will need — when it arrived, where from, the bytes exactly as they
-came — as its own JSON object in the journal, so moving to a typed entry
-later is a rename, not a reshape:
+`is_airlock_api` defines no `Witnessed` entry, and never will: no tool is
+involved in an arrival, so its contract has nothing to guard. Witnessing —
+of arrivals here, and of prompts in `RecordedAirlock.prompting` below — is
+entirely this package's own job. `witness` records when it arrived, where
+from, and the bytes exactly as they came, as one JSON object in the
+journal:
 
 ```json
 {"witnessed": {"at": "2026-11-14T01:23:45.000Z", "source": "teams", "bytes": "<base64>"}}

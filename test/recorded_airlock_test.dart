@@ -24,10 +24,10 @@ void main() {
     dir.deleteSync(recursive: true);
   });
 
-  RecordedAirlock<String> airlock({
+  RecordedAirlock<String, int> airlock({
     Decision Function(Run<Object?> run, String rules)? decide,
     bool Function(String fewer, String rules)? narrows,
-  }) => RecordedAirlock<String>(
+  }) => RecordedAirlock<String, int>(
     journal,
     decide: decide ?? (run, rules) => const Allow(by: DecidedBy.rules),
     narrows: narrows ?? (fewer, rules) => fewer == rules,
@@ -62,11 +62,12 @@ void main() {
       final id = JourneyPathId.parse('conv-1')!;
       final run = _run();
 
-      await a.record(Decided(id, run, const Allow(by: DecidedBy.rules)));
-      await a.record(Returned(id, run, const Ran(ReadMissing())));
+      await a.record(Decided(id, 1, run, const Allow(by: DecidedBy.rules)));
+      await a.record(Returned(id, 1, run, const Ran(ReadMissing())));
       await a.record(
-        Narrowed<String>(
+        Narrowed<String, int>(
           id,
+          1,
           JourneyPathId.parse('conv-1/narrowed')!,
           'fewer',
           granted: true,

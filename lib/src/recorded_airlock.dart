@@ -16,8 +16,10 @@ import 'prompt_recording.dart';
 /// journey path's `R` is whatever its host defines, so [decide] and [narrows]
 /// are given as functions rather than a shape this package would have to
 /// guess at. What this package owns is durability — the journal, one writer,
-/// chained and checked — not policy.
-final class RecordedAirlock<R> implements Airlock<R> {
+/// chained and checked — not policy. `P`, the host's place-in-a-turn type,
+/// is never read here either: it is logged by whatever it prints as, same
+/// as everything else an entry carries.
+final class RecordedAirlock<R, P> implements Airlock<R, P> {
   RecordedAirlock(
     this._journal, {
     required this._decide,
@@ -36,24 +38,23 @@ final class RecordedAirlock<R> implements Airlock<R> {
   bool narrows(R fewer, R rules) => _narrows(fewer, rules);
 
   @override
-  Future<void> record(Entry entry) async {
+  Future<void> record(Entry<P> entry) async {
     _journal.add(utf8.encode(_describe(entry)));
   }
 
   /// Witnesses [bytes] arriving from [source], before anything reads them:
   /// the airlock's own record of an arrival, kept in the same journal as
-  /// every [Entry], an entry [Airlock.record] has no way to take yet.
-  ///
-  /// `is_airlock_api` has no `Witnessed` entry until 0.3.0. Until it does,
-  /// this writes the same three things a `Witnessed` would need — when it
-  /// arrived, where from, and the bytes exactly as they came — as one JSON
-  /// object, so the move to a typed entry is a rename, not a reshape.
+  /// every [Entry], an entry [Airlock.record] has no way to take — and
+  /// never will: `is_airlock_api` defines no `Witnessed` entry at all,
+  /// since no tool is involved and so the contract has nothing to guard.
+  /// Witnessing, of arrivals and of prompts alike, is entirely this
+  /// package's job.
   ///
   /// [bytes] is deliberately the only thing this takes about what arrived:
   /// not a type the caller has already read fields out of. Whatever a
-  /// caller hands in here is what "exactly as it came" will mean once
-  /// `Witnessed` exists, so a caller that has already parsed its arrival
-  /// should witness the bytes it parsed from, not the fields it kept.
+  /// caller hands in here is what "exactly as it came" means, so a caller
+  /// that has already parsed its arrival should witness the bytes it
+  /// parsed from, not the fields it kept.
   ObjectId witness(
     Uint8List bytes, {
     required ArrivalSource source,
@@ -84,13 +85,24 @@ final class RecordedAirlock<R> implements Airlock<R> {
 /// and, like the Teams relay's own log line, the reason a run was decided or
 /// what became of it, never a copy of what it carried: no file text, no
 /// program output.
-String _describe(Entry entry) => switch (entry) {
-  Decided(:final journeyPathId, :final run, :final decision) =>
-    'decided $journeyPathId ${_reach(run.reach)} -> ${_decision(decision)}',
-  Returned(:final journeyPathId, :final run, :final outcome) =>
-    'returned $journeyPathId ${_reach(run.reach)} -> ${_outcome(outcome)}',
-  Narrowed(:final journeyPathId, :final child, :final rules, :final granted) =>
-    'narrowed $journeyPathId -> $child rules=$rules granted=$granted',
+String _describe<P>(Entry<P> entry) => switch (entry) {
+  Decided(:final journeyPathId, :final place, :final run, :final decision) =>
+    'decided $journeyPathId@$place ${_reach(run.reach)} -> ${_decision(decision)}',
+  Returned(:final journeyPathId, :final place, :final run, :final outcome) =>
+    'returned $journeyPathId@$place ${_reach(run.reach)} -> ${_outcome(outcome)}',
+  Narrowed(
+    :final journeyPathId,
+    :final place,
+    :final child,
+    :final rules,
+    :final granted,
+  ) =>
+    'narrowed $journeyPathId@$place -> $child rules=$rules granted=$granted',
+  // Narrowed<R, P> carries its own R, independent of the P this switch is
+  // over, which Dart's exhaustiveness checker can't bind without seeing a
+  // concrete R — unreachable, since Decided/Returned/Narrowed are Entry<P>'s
+  // only subtypes.
+  Entry() => throw StateError('an Entry that is none of its own subtypes'),
 };
 
 String _reach(Reach reach) => switch (reach) {

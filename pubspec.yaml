@@ -12,7 +12,7 @@ dependencies:
   is_airlock_api:
     git:
       url: https://github.com/intersyntactic/airlock_api.git
-      ref: 7136de43de8b2ac036e2619c8ddd7793f1f57fab
+      ref: 9f1d62ccb314f00610cfc2f4da498c4fbd8566bf
   # is_effects has never been published to pub.dev — not even 0.1.0:
   # https://pub.dev/api/packages/is_effects returns 404. This entry exists
   # only so pub has a hosted constraint to reconcile with the override
