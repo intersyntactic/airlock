@@ -80,6 +80,24 @@ void main() {
     expect(response.containsKey('id'), isFalse);
   });
 
+  test('ObjectNotKept names the entry that is already in, so a client knows not to retry', () async {
+    final objects = Directory('${tmp.path}/journal/objects')..createSync();
+    Process.runSync('chmod', ['555', objects.path]);
+    addTearDown(() => Process.runSync('chmod', ['755', objects.path]));
+
+    final response = await _call({
+      'source': 'teams',
+      'bytes': base64Encode(utf8.encode('cannot be kept')),
+    });
+
+    expect(response.containsKey('id'), isFalse);
+    expect(response.containsKey('error'), isTrue);
+    expect(response['entry'], isNotNull);
+    // The entry really is in, under the id the response names.
+    expect(journal.get(ObjectId.parse(response['entry'] as String)!), isNull);
+    expect((journal.check() as Broken).missing, [1]);
+  });
+
   test('malformed JSON is an error, never a success', () async {
     final socket = await Socket.connect(
       InternetAddress(socketPath, type: InternetAddressType.unix),

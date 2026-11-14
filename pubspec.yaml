@@ -21,7 +21,15 @@ dependencies:
   # package naming is_effects to agree on its source, so the override is
   # load-bearing, not optional.
   is_effects: ^0.1.0
-  is_journal: ^0.2.0
+  # 0.3.0 is not actually on pub.dev yet — https://pub.dev/api/packages/is_journal
+  # still shows 0.2.0 latest as of this pin, despite a8's report that
+  # journal-0f had checked it end to end from a published archive.
+  # Git-pinned to origin/main until that's confirmed; swap for a hosted
+  # ^0.3.0 once it resolves.
+  is_journal:
+    git:
+      url: https://github.com/intersyntactic/journal.git
+      ref: 1dc236bebfa85387ea2e50c21e97bfb066110fa1
   checked_json: ^0.2.1
 
 dev_dependencies:

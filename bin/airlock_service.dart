@@ -1,7 +1,13 @@
 /// The airlock as its own service: owns a journal and a Unix socket, and
 /// witnesses what a client (a relay that cannot hold a journal itself)
-/// sends it. Runs from source — `is_journal` cannot run compiled — until
-/// that is fixed.
+/// sends it.
+///
+/// `is_journal` 0.3.0 can run compiled, given its code hash at build time:
+///
+///     dart compile exe $(dart run is_journal:code_hash) bin/airlock_service.dart
+///
+/// Run from source (`dart run`), no define is needed — `Journal.open`
+/// computes the hash from its own source instead.
 ///
 /// Environment:
 ///   AIRLOCK_JOURNAL_DIR  the journal's directory (created if absent)

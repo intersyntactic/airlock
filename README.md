@@ -159,7 +159,10 @@ connection, one JSON request line (`{"source": ..., "bytes": ...}`), one
 JSON response line back: `{"id": ...}` once the journal's `add` has
 returned, or `{"error": ...}` on any failure — never a success on a
 failure, since a client unable to tell the two apart could carry on as
-though something had been recorded when nothing was.
+though something had been recorded when nothing was. An `ObjectNotKept`
+failure (the entry went in, its object did not) answers with `{"error":
+..., "entry": ...}`: the entry named is already recorded, so the same
+request must not be retried, or it records the arrival a second time.
 
 ```
 AIRLOCK_JOURNAL_DIR=/var/lib/airlock/journal \
@@ -175,12 +178,17 @@ removes the socket file — a connection still in flight when the signal
 arrives is never asked to record into a journal that has already given
 up its claim.
 
-This runs from source, not compiled: `is_journal` can't run in a
-compiled build (it reads its own package's source to compute its code
-hash), so `dart compile exe` on anything that imports it fails at
-runtime. That's the whole reason this is a separate process: a relay
-that only talks to this service over the socket has no `is_journal`
-dependency of its own, and can go back to being compiled.
+`is_journal` 0.3.0 can run in a compiled build, given its code hash at
+build time:
+
+```
+dart compile exe $(dart run is_journal:code_hash) bin/airlock_service.dart
+```
+
+Run from source (`dart run`), no define is needed. Either way, this
+being a separate process is still the point: a relay that only talks to
+it over the socket carries no `is_journal` dependency of its own, and
+can be compiled whether or not this service is.
 
 ## Pin
 

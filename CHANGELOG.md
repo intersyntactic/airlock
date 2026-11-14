@@ -43,7 +43,13 @@
   of this package over git must copy the override itself.
 - `bin/airlock_service.dart`: runs `witness` as its own process over a
   Unix socket, for a host (the Teams relay) that can't hold a journal
-  itself without losing `dart compile exe` — `is_journal` can't run
-  compiled. One request, one response, one connection; never a success
-  on a failure. `SIGTERM`/`SIGINT` stop new connections, wait for
-  in-flight ones, then close the journal — never the other way around.
+  itself without losing `dart compile exe`. One request, one response,
+  one connection; never a success on a failure. `SIGTERM`/`SIGINT` stop
+  new connections, wait for in-flight ones, then close the journal —
+  never the other way around.
+- Bump `is_journal` to 0.3.0 (git-pinned: not actually on pub.dev yet
+  despite a report that it was — see the pubspec comment), which can run
+  compiled given its code hash at build time. `WitnessService` answers an
+  `ObjectNotKept` failure (the entry went in, its object did not)
+  distinctly — `{"error": ..., "entry": ...}` — so a client knows not to
+  retry the same request, which would record the arrival twice.

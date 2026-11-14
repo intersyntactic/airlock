@@ -8,6 +8,11 @@
 /// on any failure. Never a success on a failure: a client that cannot
 /// tell the two apart could go on as though something had been recorded
 /// when nothing was.
+///
+/// An [ObjectNotKept] failure is answered with `{"error": ..., "entry":
+/// ...}`, naming the entry that went in while its object did not: that
+/// entry is already recorded, so a client must not retry the same
+/// request on seeing it — doing so would record the arrival twice.
 library;
 
 import 'dart:async';
@@ -63,6 +68,8 @@ final class WitnessService {
       }
       final bytes = base64Decode(request.string('bytes'));
       _respond(socket, id: _witness.witness(bytes, source: source));
+    } on ObjectNotKept catch (e) {
+      _respond(socket, error: '$e', entry: e.id);
     } on Exception catch (e) {
       _respond(socket, error: '$e');
     } finally {
@@ -70,10 +77,10 @@ final class WitnessService {
     }
   }
 
-  void _respond(Socket socket, {ObjectId? id, String? error}) {
+  void _respond(Socket socket, {ObjectId? id, String? error, ObjectId? entry}) {
     socket.add(
       utf8.encode(
-        '${jsonEncode(id != null ? {'id': id.hex} : {'error': error})}\n',
+        '${jsonEncode(id != null ? {'id': id.hex} : {'error': error, if (entry != null) 'entry': entry.hex})}\n',
       ),
     );
   }
