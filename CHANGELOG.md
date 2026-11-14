@@ -13,13 +13,15 @@
   itself. Without the re-export, a caller would have to repeat this
   package's git pins on both to name them, with the two able to drift
   apart.
-- `RecordedAirlock.prompting`: records a prompt before it goes and its
-  reply once it ends, naming which prompt it answers, with its status,
-  headers and how it ended. A port of `intelligent-reporting`'s `CallTap`
-  (now `PromptTap`), moved here since recording what crosses the airlock
-  is this package's job. `PromptTap.prompt`/`.reply` read a record back by
-  its own id, so a sender never needs a second handle on the journal.
-  `pass` is `JourneyPathId`, not a bare `String`.
+- `RecordedAirlock.prompt`: sends a prompt, records it (masked) before
+  anything goes, gathers the reply as it arrives, records that too, and
+  returns exactly what it recorded. Replaces an earlier `prompting`/
+  `PromptTap`/`ReplyTap` design where a caller drove its own HTTP and the
+  airlock only recorded what it was handed — Nick ruled that out: the
+  airlock is the only thing that sends, so no caller can hold a client of
+  its own. The record format (`model prompt`/`model reply`, the link,
+  per-provider `source`, `JourneyPathId` `pass`) is unchanged; only who
+  holds the connection moved.
 - `RecordedAirlock<R, P>`: follows `is_airlock_api` 0.2.0's move to
   `Airlock<R, P>`, where `P` is the host's place-in-a-turn type and every
   `Entry<P>` carries one. `decide`/`narrows` are unaffected; `record` takes

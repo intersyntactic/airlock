@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -15,6 +16,8 @@ final claude = ArrivalSource.parse('claude')!;
 final pass = JourneyPathId.parse('one')!;
 
 Uint8List bytes(String s) => utf8.encode(s);
+
+PromptId promptId(Uint8List bytes) => PromptId.of(ObjectId.of(bytes));
 
 int entries(Journal j) => switch (j.check()) {
   Intact(:final count) => count,
@@ -78,11 +81,7 @@ void main() {
       const ReplyFailed('connection reset'),
     ]) {
       test('a reply that ended ${end.wire} reads back naming its prompt', () {
-        final prompt = PromptTap(
-          journal,
-          pass,
-          now: () => at,
-        ).sending(claude, to, bytes('{}'), const {}).prompt;
+        final prompt = promptId(bytes('{}'));
         final read = ReplyRecord.fromBytes(
           ReplyRecord(
             prompt: prompt,
@@ -109,12 +108,8 @@ void main() {
     test(
       'a reply with no status leaves it out, and reads back without one',
       () {
-        final prompt = PromptTap(
-          journal,
-          pass,
-        ).sending(claude, to, bytes('{}'), const {}).prompt;
         final written = ReplyRecord(
-          prompt: prompt,
+          prompt: promptId(bytes('{}')),
           headers: const {},
           end: const ReplyFailed('refused before a status'),
           ended: at,
@@ -138,12 +133,8 @@ void main() {
         body: bytes('{}'),
       ).toBytes();
       expect(() => ReplyRecord.fromBytes(prompt), throwsFormatException);
-      final tap = PromptTap(
-        journal,
-        pass,
-      ).sending(claude, to, bytes('{}'), const {});
       final reply = ReplyRecord(
-        prompt: tap.prompt,
+        prompt: promptId(bytes('{}')),
         headers: const {},
         end: const ReplyComplete(),
         ended: at,
@@ -174,88 +165,10 @@ void main() {
     });
   });
 
-  group('the tap', () {
-    test('a prompt is in the journal before sending returns', () {
-      final body = bytes('{"model":"m"}');
-      final reply = PromptTap(
-        journal,
-        pass,
-        now: () => at,
-      ).sending(claude, to, body, {'x-app': 'cli'});
-      expect(entries(journal), 1);
-      final kept = PromptRecord.fromBytes(journal.get(reply.prompt.object)!);
-      expect(kept.body, body);
-      expect(kept.source, claude);
-      expect(kept.headers, {'x-app': 'cli'});
-      expect(kept.sent, at);
-    });
+  group('RecordedAirlock.prompt', () {
+    late HttpServer server;
+    late Uri serverTo;
 
-    test(
-      'a prompt the journal cannot take is refused, and nothing is recorded',
-      () {
-        journal.close();
-        expect(
-          () => PromptTap(
-            journal,
-            pass,
-          ).sending(claude, to, bytes('{}'), const {}),
-          throwsStateError,
-        );
-        expect(entries(journal), 0);
-      },
-    );
-
-    test('the reply is its pieces as they arrived, recorded once it ends, naming its prompt', () {
-      final reply = PromptTap(
-        journal,
-        pass,
-        now: () => at,
-      ).sending(claude, to, bytes('{}'), const {});
-      reply
-        ..status(200, {
-          'content-type': ['text/event-stream'],
-        })
-        ..chunk(bytes('event: a\n'))
-        ..chunk(bytes('event: b\n'));
-      expect(entries(journal), 1, reason: 'nothing more until it ends');
-      final id = reply.ended(const ReplyComplete());
-      expect(entries(journal), 2);
-      final kept = ReplyRecord.fromBytes(journal.get(id)!);
-      expect(kept.prompt, reply.prompt);
-      expect(kept.status, 200);
-      expect(kept.body, bytes('event: a\nevent: b\n'));
-      expect(kept.end, const ReplyComplete());
-    });
-
-    test(
-      'a reply the journal cannot take throws, so its answer is never used',
-      () {
-        final reply = PromptTap(journal, pass).sending(
-          claude,
-          to,
-          bytes('{}'),
-          const {},
-        )..chunk(bytes('the answer'));
-        journal.close();
-        expect(() => reply.ended(const ReplyComplete()), throwsStateError);
-      },
-    );
-
-    test(
-      'a tap reads back the prompt and reply it recorded, by their own ids',
-      () {
-        final body = bytes('{"model":"m"}');
-        final tap = PromptTap(journal, pass, now: () => at);
-        final reply = tap.sending(claude, to, body, const {});
-        final id = reply.ended(const ReplyComplete());
-
-        expect(tap.prompt(reply.prompt).body, body);
-        expect(tap.reply(id).end, const ReplyComplete());
-      },
-    );
-  });
-
-  group('RecordedAirlock.prompting', () {
     RecordedAirlock<Object?, Object?> airlock() =>
         RecordedAirlock<Object?, Object?>(
           journal,
@@ -263,10 +176,83 @@ void main() {
           narrows: (fewer, rules) => true,
         );
 
-    test('shares the airlock\'s own journal', () {
-      final tap = airlock().prompting(pass, now: () => at);
-      tap.sending(claude, to, bytes('{}'), const {});
-      expect(entries(journal), 1);
+    tearDown(() async {
+      await server.close(force: true);
+    });
+
+    test('the prompt is in the journal before it is sent, masked, and the reply, as it arrived, names it', () async {
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      serverTo = Uri.parse('http://127.0.0.1:${server.port}/v1/messages');
+      final requestBody = Completer<String>();
+      unawaited(() async {
+        final req = await server.first;
+        requestBody.complete(await utf8.decodeStream(req));
+        req.response.statusCode = 200;
+        req.response.headers.set('content-type', 'text/event-stream');
+        req.response.write('event: a\n');
+        await req.response.flush();
+        req.response.write('event: b\n');
+        await req.response.close();
+      }());
+
+      final body = bytes('{"model":"m"}');
+      final reply = await airlock().prompt(pass, claude, serverTo, body, {
+        'authorization': 'Bearer secret-token',
+        'content-type': 'application/json',
+      }, now: () => at);
+
+      expect(await requestBody.future, '{"model":"m"}');
+      expect(reply.status, 200);
+      expect(reply.headers['content-type'], ['text/event-stream']);
+      expect(reply.body, bytes('event: a\nevent: b\n'));
+      expect(reply.end, const ReplyComplete());
+      expect(reply.ended, at);
+
+      // Two entries: the prompt, then the reply.
+      expect(entries(journal), 2);
+      final kept = PromptRecord.fromBytes(journal.get(reply.prompt.object)!);
+      expect(kept.headers['authorization'], 'Bearer [masked]');
+      expect(kept.body, body);
+      expect(kept.source, claude);
+    });
+
+    test(
+      'a prompt the journal cannot take is refused, and nothing is sent',
+      () async {
+        journal.close();
+        server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+
+        await expectLater(
+          airlock().prompt(
+            pass,
+            claude,
+            Uri.parse('http://127.0.0.1:${server.port}/'),
+            bytes('{}'),
+            const {},
+          ),
+          throwsStateError,
+        );
+        expect(server.connectionsInfo().total, 0);
+      },
+    );
+
+    test('a reply refused by nothing listening is recorded as failed, naming its prompt', () async {
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final unreachable = Uri.parse('http://127.0.0.1:${server.port}/');
+      await server.close(force: true);
+
+      final reply = await airlock().prompt(
+        pass,
+        claude,
+        unreachable,
+        bytes('{}'),
+        const {},
+        now: () => at,
+      );
+
+      expect(reply.status, isNull);
+      expect(reply.end, isA<ReplyFailed>());
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     });
   });
 

@@ -5,8 +5,8 @@
 /// the app's to say, so [RecordedAirlock] takes that policy as two functions
 /// rather than guessing at a shape for `R`. What it owns is the record: one
 /// line per [Entry]; for what reaches the airlock before any journey path
-/// exists to record it, [RecordedAirlock.witness]; and for what the airlock
-/// itself sends out and gets back, [RecordedAirlock.prompting].
+/// exists to record it, [RecordedAirlock.witness]; and for a prompt the
+/// airlock itself sends out and gets back, [RecordedAirlock.prompt].
 library;
 
 // A caller can't build a RecordedAirlock without writing `decide`, which

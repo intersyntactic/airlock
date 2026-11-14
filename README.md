@@ -48,7 +48,7 @@ string that means something still gets a type.
 
 `is_airlock_api` defines no `Witnessed` entry, and never will: no tool is
 involved in an arrival, so its contract has nothing to guard. Witnessing —
-of arrivals here, and of prompts in `RecordedAirlock.prompting` below — is
+of arrivals here, and of prompts in `RecordedAirlock.prompt` below — is
 entirely this package's own job. `witness` records when it arrived, where
 from, and the bytes exactly as they came, as one JSON object in the
 journal:
@@ -76,50 +76,54 @@ parsed type's own shape leaves ambiguous (a chat reply's quote tag versus a
 everything either reading would need, so neither has to be trusted to have
 picked the right fields.
 
-## Recording a prompt
+## Sending a prompt
 
-Going out is as recordable as coming in. `RecordedAirlock.prompting` gives
-a `PromptTap` that writes the same airlock's journal:
+Going out is as recordable as coming in — and, per Nick's ruling, the
+airlock is the only thing that sends: no caller holds its own connection
+or its own recorder. `RecordedAirlock.prompt` sends the prompt, records it
+(headers masked) before anything goes, gathers the reply as it arrives,
+records that too, and hands back exactly what it recorded:
 
 ```dart
-final tap = airlock.prompting(JourneyPathId.parse('journey-name')!);
-final reply = tap.sending(ArrivalSource.parse('claude')!, to, bodyBytes, headers);
-// ...send the request, feed the response to reply...
-reply.status(200, responseHeaders);
-reply.chunk(firstChunkBytes);
-reply.chunk(nextChunkBytes);
-reply.ended(const ReplyComplete());
+final reply = await airlock.prompt(
+  JourneyPathId.parse('journey-name')!,
+  ArrivalSource.parse('claude')!,
+  to,
+  bodyBytes,
+  headers, // the real headers, including the credential; prompt masks
+           // them for the record, but sends these
+);
+// reply.status, reply.headers, reply.body, reply.end — what the journal
+// holds, not a second copy of the same bytes read some other way.
 ```
 
-A prompt is in the journal before it can go — `sending` throws, and then it
-must not go, rather than ever letting an unrecorded prompt out. A reply the
-journal can't take throws too, for the same reason: an answer with no
-record of how it arrived is not used. The reply's entry names the id of the
-prompt's entry (`PromptId`), so the journal can always say which answers
-which, and it carries the reply's status, headers and how it ended
-(`ReplyComplete`, `ReplyCancelled`, or `ReplyFailed` with why) — enough to
-read the reply's bytes back and use exactly the text that was recorded,
-never a copy made again from something else.
+A prompt is in the journal before it is sent — if it can't be, nothing is
+sent, rather than ever letting an unrecorded prompt out. A failed send
+(refused, timed out, the connection dropped) is still recorded, as a
+reply with `ReplyFailed` and no status, not left unrecorded because
+nothing came back. The reply's entry names the id of the prompt's entry
+(`PromptId`), so the journal can always say which answers which.
 
-This is a straight port of `intelligent-reporting`'s `CallTap`
-(now `PromptTap`, pipeline/lib/src/record_prompts.dart in
-https://github.com/enspyrco/intelligent-reporting/pull/132), moved into
-`is_airlock` since recording what crosses the airlock is this package's
-job, not the pipeline's. `source` is the same `ArrivalSource` `witness`
-takes; `claude` and `ollama` are separate sources, since which model
-answered is provenance, not incidental to it.
+This followed a design Nick ruled out: an earlier version gave a caller a
+`PromptTap`/`ReplyTap` it drove itself, doing its own HTTP alongside — a
+sender-side recorder with the airlock as a passive backend behind it.
+That let a sender hold a client of its own, which is exactly what
+witnessing arrivals never allows; `prompt` closes the same gap for what
+goes out. The record format — `model prompt`/`model reply`, the link, the
+per-provider `source`, `JourneyPathId` `pass` — is unchanged from
+`intelligent-reporting`'s original `CallTap`
+(pipeline/lib/src/record_prompts.dart in
+https://github.com/enspyrco/intelligent-reporting/pull/132); only who
+holds the connection moved.
 
-`masked` is here too: a prompt's headers, with the `authorization` and
-`x-api-key` credential replaced by `[masked]` wherever its value appears,
-so a credential never has to be read back out of a prompt's own headers to
-be kept out of the record it was sent with.
+`masked` is exported too: the same masking `prompt` applies to a
+recorded prompt's headers, for anything that still needs it directly.
 
-What this package deliberately does *not* record: `claude -p`'s own
-prompts go through a local proxy standing between it and the model, since
-it is a program, not an HTTP call this process makes. That proxy stays in
-`intelligent-reporting`'s pipeline — it is a process-facing concern, is_airlock
-stays a library an embedding process links in, and a journal's single
-writer means the proxy would still need its own open journal either way.
+What this package deliberately does *not* send: `claude -p`'s own prompts
+go through a local proxy standing between it and the model, since it is a
+subprocess, not an HTTP call this process makes on its own behalf. That
+proxy stays in `intelligent-reporting`'s pipeline, forwarding each request
+through this same `prompt` call rather than its own `HttpClient`.
 
 ## Pin
 

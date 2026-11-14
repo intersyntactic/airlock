@@ -1,15 +1,13 @@
-/// What went up to a model at each prompt, and what came back, each added
-/// to this airlock's journal as one entry.
+/// The record of what went up to a model at each prompt, and what came
+/// back: [PromptRecord] and [ReplyRecord], each one journal entry.
 ///
 /// An entry is one line of JSON saying what crossed (where it went, when,
 /// the headers, how a reply ended), then the bytes that crossed, as they
 /// crossed and encoded again by nothing.
 ///
-/// A prompt is in the journal before it goes, and if it can't be, it
-/// doesn't go: [PromptTap.sending] is the only way to a [ReplyTap]. A reply
-/// the journal can't take throws rather than being logged and passed on,
-/// because the record is the reply's provenance, and text with none is
-/// unusable.
+/// Sending is [RecordedAirlock.prompt]'s job, not this library's: a prompt
+/// is in the journal before it is sent, and nothing here holds a
+/// connection or a client of its own.
 library;
 
 import 'dart:convert';
@@ -23,6 +21,10 @@ import 'arrival_source.dart';
 /// A prompt's id: the journal object that says what went up.
 final class PromptId {
   const PromptId._(this.object);
+
+  /// [object]'s id, as a prompt's. Made by [RecordedAirlock.prompt] once
+  /// it has recorded one; nothing else should need to make one.
+  const PromptId.of(ObjectId object) : this._(object);
 
   final ObjectId object;
 
@@ -258,87 +260,6 @@ final class ReplyRecord {
     }
     throw FormatException('a $_reply missing its notes', notes);
   }
-}
-
-/// Records each prompt made under [pass] in a journal — [RecordedAirlock]'s
-/// own, from [RecordedAirlock.prompting] — and reads them back ([prompt],
-/// [reply]), so a sender needs no other handle on the journal.
-final class PromptTap {
-  PromptTap(this._journal, this.pass, {DateTime Function()? now})
-    : now = now ?? DateTime.now;
-
-  final Journal _journal;
-
-  /// The journey path making this pass's prompts.
-  final JourneyPathId pass;
-
-  /// When each prompt goes up and each reply ends.
-  final DateTime Function() now;
-
-  /// Adds the prompt about to go to [to] (its [body] exactly as it will be
-  /// sent, its [headers] already [masked]) at [source], and returns what
-  /// records its reply. Throws when the journal can't take it, and then
-  /// the prompt must not go.
-  ReplyTap sending(
-    ArrivalSource source,
-    Uri to,
-    Uint8List body,
-    Map<String, String> headers,
-  ) {
-    final prompt = PromptRecord(
-      pass: pass,
-      source: source,
-      to: to,
-      sent: now(),
-      headers: headers,
-      body: body,
-    );
-    return ReplyTap._(this, PromptId._(_journal.add(prompt.toBytes())));
-  }
-
-  /// The prompt recorded as [id], read back. The tap is the only handle
-  /// that can read its own record, so a sender never needs the journal
-  /// itself, nor a second handle that might not point at the same one.
-  PromptRecord prompt(PromptId id) =>
-      PromptRecord.fromBytes(_journal.get(id.object)!);
-
-  /// The reply recorded at [id] — what [ReplyTap.ended] returned — read
-  /// back.
-  ReplyRecord reply(ObjectId id) => ReplyRecord.fromBytes(_journal.get(id)!);
-}
-
-/// Gathers one reply's bytes as they arrive and records them when it ends.
-final class ReplyTap {
-  ReplyTap._(this._tap, this.prompt);
-
-  final PromptTap _tap;
-
-  /// The prompt this replies to.
-  final PromptId prompt;
-
-  final _body = BytesBuilder(copy: true);
-  int? _status;
-  Map<String, List<String>> _headers = const {};
-
-  void status(int code, Map<String, List<String>> headers) {
-    _status = code;
-    _headers = headers;
-  }
-
-  void chunk(List<int> bytes) => _body.add(bytes);
-
-  /// Adds the reply and returns its id. Throws when the journal can't take
-  /// it, and then the reply must not be used.
-  ObjectId ended(ReplyEnd how) => _tap._journal.add(
-    ReplyRecord(
-      prompt: prompt,
-      status: _status,
-      headers: _headers,
-      end: how,
-      ended: _tap.now(),
-      body: _body.takeBytes(),
-    ).toBytes(),
-  );
 }
 
 /// [headers] with the credential they carry replaced by `[masked]` wherever

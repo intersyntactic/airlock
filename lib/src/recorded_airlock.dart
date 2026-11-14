@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
@@ -24,9 +25,11 @@ final class RecordedAirlock<R, P> implements Airlock<R, P> {
     this._journal, {
     required this._decide,
     required this._narrows,
-  });
+    HttpClient? client,
+  }) : _client = client ?? HttpClient();
 
   final Journal _journal;
+  final HttpClient _client;
   final Decision Function(Run<Object?> run, R rules) _decide;
   final bool Function(R fewer, R rules) _narrows;
 
@@ -71,13 +74,73 @@ final class RecordedAirlock<R, P> implements Airlock<R, P> {
     ),
   );
 
-  /// Records prompts made under [pass] in this airlock's journal: before
-  /// each goes up, no way to send it unrecorded, and the reply naming the
-  /// prompt it answers, with its status, headers and how it ended. Not
-  /// `witness`'s job — a reply's record needs more than bytes and a source,
-  /// and a prompt going out is not an arrival.
-  PromptTap prompting(JourneyPathId pass, {DateTime Function()? now}) =>
-      PromptTap(_journal, pass, now: now);
+  /// Sends [body] to [to], as one prompt under [pass] from [source], with
+  /// [headers], and records both it and its reply. Returns the reply
+  /// exactly as recorded — the airlock is the only thing that sends a
+  /// prompt through it, so what a caller reads back is what the journal
+  /// holds, never a second copy of the same bytes read some other way.
+  ///
+  /// The prompt is recorded (its headers [masked]) before anything is
+  /// sent; if it can't be, nothing is sent. The reply is gathered as it
+  /// arrives and recorded once its body is over, whether it completed or
+  /// [ReplyFailed]. If the reply can't be recorded, the error from the
+  /// journal is thrown — an answer with no record of how it arrived is
+  /// not used — even though it was already received.
+  ///
+  /// No sender holds a connection or a recorder of its own: sending a
+  /// prompt and witnessing it happen together, by construction, not by a
+  /// sender remembering to call both.
+  Future<ReplyRecord> prompt(
+    JourneyPathId pass,
+    ArrivalSource source,
+    Uri to,
+    Uint8List body,
+    Map<String, String> headers, {
+    DateTime Function()? now,
+  }) async {
+    final nowFn = now ?? DateTime.now;
+    final promptRecord = PromptRecord(
+      pass: pass,
+      source: source,
+      to: to,
+      sent: nowFn(),
+      headers: masked(headers),
+      body: body,
+    );
+    final promptId = PromptId.of(_journal.add(promptRecord.toBytes()));
+
+    int? status;
+    var replyHeaders = const <String, List<String>>{};
+    final collected = BytesBuilder(copy: true);
+    ReplyEnd end;
+    try {
+      final request = await _client.postUrl(to);
+      headers.forEach(request.headers.set);
+      request.add(body);
+      final response = await request.close();
+      status = response.statusCode;
+      final gathered = <String, List<String>>{};
+      response.headers.forEach((name, values) => gathered[name] = values);
+      replyHeaders = gathered;
+      await for (final chunk in response) {
+        collected.add(chunk);
+      }
+      end = const ReplyComplete();
+    } on Exception catch (e) {
+      end = ReplyFailed('$e');
+    }
+
+    final replyRecord = ReplyRecord(
+      prompt: promptId,
+      status: status,
+      headers: replyHeaders,
+      end: end,
+      ended: nowFn(),
+      body: collected.takeBytes(),
+    );
+    _journal.add(replyRecord.toBytes());
+    return replyRecord;
+  }
 }
 
 /// One journal line for [entry]. Human-readable, per `is_journal`'s own
