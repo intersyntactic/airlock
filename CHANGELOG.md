@@ -67,3 +67,9 @@
   chat, an issue tracker or any site out of the home, decided like any
   other effect. The journal line now covers it: `sends <origin> as
   <sign-in>` (or `as no sign-in`).
+- Bump `is_journal` again, to 0.4.0: its code hash now covers
+  `is_content_id`'s resolved source too, not just `is_journal`'s own, so
+  every build's hash changed from 0.3.0's. Verified end to end again —
+  compiled, ran, witnessed a real request, `SIGTERM`'d, exited clean —
+  with the resulting `-Dis_journal.code=...` matching journal-0f's
+  quoted hash exactly.
