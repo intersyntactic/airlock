@@ -91,7 +91,7 @@ class Witness {
       source: source,
       to: to,
       sent: nowFn(),
-      headers: masked(headers),
+      headers: MaskedHeaders.of(headers),
       body: body,
     );
     final promptId = PromptId.of(_journal.add(promptRecord.toBytes()));

@@ -35,6 +35,36 @@ final class PromptId {
   int get hashCode => object.hashCode;
 }
 
+/// Headers that have been through [masked]. The only way to one is
+/// [MaskedHeaders.of], so [PromptRecord.headers] can hold a credential
+/// only if a caller skipped this type entirely to put a raw map in its
+/// place — never by forgetting to call [masked] before handing headers
+/// to something that already asks for this.
+final class MaskedHeaders {
+  const MaskedHeaders._(this.value);
+
+  /// [headers], masked.
+  factory MaskedHeaders.of(Map<String, String> headers) =>
+      MaskedHeaders._(masked(headers));
+
+  final Map<String, String> value;
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! MaskedHeaders || other.value.length != value.length) {
+      return false;
+    }
+    for (final MapEntry(key: name, value: v) in value.entries) {
+      if (other.value[name] != v) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode =>
+      value.entries.fold(0, (h, e) => h ^ Object.hash(e.key, e.value));
+}
+
 const _prompt = 'model prompt';
 const _reply = 'model reply';
 const _lineBreak = 0x0a;
@@ -112,8 +142,8 @@ final class PromptRecord {
   /// When it was written, just before it went.
   final DateTime sent;
 
-  /// Its headers, with the credential masked ([masked]).
-  final Map<String, String> headers;
+  /// Its headers, [masked] — the type, not a comment, says so.
+  final MaskedHeaders headers;
 
   /// Its body, exactly as sent.
   final Uint8List body;
@@ -123,7 +153,7 @@ final class PromptRecord {
     'source': source.value,
     'to': '$to',
     'sent': sent.toUtc().toIso8601String(),
-    'headers': headers,
+    'headers': headers.value,
   }, body);
 
   /// Throws a [FormatException] when [object] is not one [toBytes] wrote.
@@ -145,7 +175,9 @@ final class PromptRecord {
             (throw FormatException('not a source', source)),
         to: Uri.parse(to),
         sent: DateTime.parse(sent),
-        headers: _headers(headers),
+        // Already masked — this is a read of what toBytes wrote, not a
+        // fresh header map that needs masking again.
+        headers: MaskedHeaders._(_headers(headers)),
         body: body,
       );
     }

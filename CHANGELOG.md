@@ -73,3 +73,11 @@
   compiled, ran, witnessed a real request, `SIGTERM`'d, exited clean —
   with the resulting `-Dis_journal.code=...` matching journal-0f's
   quoted hash exactly.
+- `PromptRecord.headers` is `MaskedHeaders`, not a bare `Map<String,
+  String>`: the only way to make one is `MaskedHeaders.of`, which calls
+  `masked` itself, so a `PromptRecord` can hold a credential only by a
+  caller bypassing the type altogether, not by forgetting to mask first.
+  Added the stronger test `claude_call_test.dart` already had in
+  `intelligent-reporting`'s pipeline: the real credential sent on the
+  wire never appears anywhere in the journal's stored bytes, scanned
+  directly, not just the one field a decoder happens to read back.

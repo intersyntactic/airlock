@@ -141,8 +141,11 @@ per-provider `source`, `JourneyPathId` `pass` — is unchanged from
 https://github.com/enspyrco/intelligent-reporting/pull/132); only who
 holds the connection moved.
 
-`masked` is exported too: the same masking `prompt` applies to a
-recorded prompt's headers, for anything that still needs it directly.
+`PromptRecord.headers` is `MaskedHeaders`, not a bare `Map<String, String>`:
+the only way to one is `MaskedHeaders.of`, which masks on the way in, so
+the type itself is the proof a credential was masked, not a comment next
+to a field that trusted every caller to remember. `masked` is exported
+too, for anything that wants the masking without the type.
 
 What this package deliberately does *not* send: `claude -p`'s own prompts
 go through a local proxy standing between it and the model, since it is a

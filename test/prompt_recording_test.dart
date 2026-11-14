@@ -44,10 +44,10 @@ void main() {
         source: claude,
         to: to,
         sent: at,
-        headers: {
-          'authorization': 'Bearer [masked]',
+        headers: MaskedHeaders.of({
+          'authorization': 'Bearer secret-token',
           'content-type': 'application/json',
-        },
+        }),
         body: body,
       ).toBytes();
       final notes = utf8.decode(written.sublist(0, written.indexOf(0x0a)));
@@ -68,7 +68,7 @@ void main() {
       expect(read.source, claude);
       expect(read.to, to);
       expect(read.sent, at);
-      expect(read.headers, {
+      expect(read.headers.value, {
         'authorization': 'Bearer [masked]',
         'content-type': 'application/json',
       });
@@ -129,7 +129,7 @@ void main() {
         source: claude,
         to: to,
         sent: at,
-        headers: const {},
+        headers: MaskedHeaders.of(const {}),
         body: bytes('{}'),
       ).toBytes();
       expect(() => ReplyRecord.fromBytes(prompt), throwsFormatException);
@@ -153,7 +153,7 @@ void main() {
         source: claude,
         to: to,
         sent: at,
-        headers: const {},
+        headers: MaskedHeaders.of(const {}),
         body: bytes('{}'),
       ).toBytes();
       final relabelled = bytes(
@@ -218,10 +218,44 @@ void main() {
       expect(entries(journal), 2);
       expect(ReplyRecord.fromBytes(journal.get(replyId)!).body, reply.body);
       final kept = PromptRecord.fromBytes(journal.get(reply.prompt.object)!);
-      expect(kept.headers['authorization'], 'Bearer [masked]');
+      expect(kept.headers.value['authorization'], 'Bearer [masked]');
       expect(kept.body, body);
       expect(kept.source, claude);
     });
+
+    test(
+      'the real credential never reaches the journal, only [masked]',
+      () async {
+        server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        serverTo = Uri.parse('http://127.0.0.1:${server.port}/v1/messages');
+        const secret = 'sk-ant-this-must-never-be-written-to-disk';
+        unawaited(() async {
+          final req = await server.first;
+          // The real secret did arrive on the wire, exactly where it
+          // should — only the journal must never hold it.
+          expect(req.headers.value('authorization'), 'Bearer $secret');
+          await req.drain<void>();
+          await req.response.close();
+        }());
+
+        await witness().prompt(pass, claude, serverTo, bytes('{}'), {
+          'authorization': 'Bearer $secret',
+        }, now: () => at);
+
+        // Every byte this journal has ever kept, not just the one field a
+        // decoder happens to read back: the credential must appear nowhere
+        // in objects/, under any encoding this process might have chosen.
+        final objectsDir = Directory('${tmp.path}/journal/objects');
+        for (final file
+            in objectsDir.listSync(recursive: true).whereType<File>()) {
+          expect(
+            utf8.decode(file.readAsBytesSync(), allowMalformed: true),
+            isNot(contains(secret)),
+            reason: 'found the real credential in ${file.path}',
+          );
+        }
+      },
+    );
 
     test('no Accept-Encoding is added, so the body recorded matches the body sent, compressed or not', () async {
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
