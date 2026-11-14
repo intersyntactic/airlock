@@ -37,10 +37,12 @@
   `Airlock<R, P>`, where `P` is the host's place-in-a-turn type and every
   `Entry<P>` carries one. `decide`/`narrows` are unaffected; `record` takes
   `Entry<P>`, and the journal line for each entry now names its place.
-- Fix `is_effects`'s pubspec comment: it has never been published to
-  pub.dev at all (not merely an outdated 0.1.0), so the hosted entry plus
-  `dependency_overrides` pairing is structural, not optional — a consumer
-  of this package over git must copy the override itself.
+  Superseded a few commits later by `Entry<R, P>` — see below.
+- Fix `is_effects`'s pubspec comment: at the time, it had never been
+  published to pub.dev at all (not merely an outdated 0.1.0), so the
+  hosted entry plus `dependency_overrides` pairing was structural, not
+  optional. `is_effects` has since published 0.1.0 for real; the
+  override is gone and this is a plain hosted dependency now.
 - `bin/airlock_service.dart`: runs `witness` as its own process over a
   Unix socket, for a host (the Teams relay) that can't hold a journal
   itself without losing `dart compile exe`. One request, one response,
@@ -53,3 +55,14 @@
   `ObjectNotKept` failure (the entry went in, its object did not)
   distinctly — `{"error": ..., "entry": ...}` — so a client knows not to
   retry the same request, which would record the arrival twice.
+- Follow `is_airlock_api` 0.2.0's move to `Entry<R, P>` (every kind now
+  carries both the rules type and the place type, not just `P`) and
+  `PathInRepo` → `RelativePath` (now `is_effects`'s own, published).
+  `record` takes `Entry<R, P>`; the journal line's switch over `Entry`
+  is exhaustive again, with no throwing fallback case — the earlier
+  `Entry<P>` shape couldn't bind `Narrowed`'s independent `R`, so Dart
+  could never prove the switch covered every kind.
+- `Reach` gains a fourth case, `Sends(origin, signIn)` — posting to a
+  chat, an issue tracker or any site out of the home, decided like any
+  other effect. The journal line now covers it: `sends <origin> as
+  <sign-in>` (or `as no sign-in`).

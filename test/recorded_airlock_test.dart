@@ -8,7 +8,31 @@ import 'package:test/test.dart';
 
 /// A [Run] good enough to be recorded; what it carries is never read back.
 Run<Object?> _run() =>
-    Program.read.run<Outcome<ReadResult>>(PathInRepo.root, then: Done.new);
+    Program.read.run<Outcome<ReadResult>>(RelativePath.root, then: Done.new);
+
+/// A [Run] whose reach is [Sends], as [origin] under [signIn].
+Run<Object?> _send(Origin origin, {SignIn? signIn}) => Program.web
+    .run<Outcome<Sent>>(Request(origin, signIn: signIn), then: Done.new);
+
+/// The bytes of every entry [dir] holds, in order, read straight from the
+/// journal's own `entries` file and `objects/` (documented in is_journal's
+/// README) rather than through any id this test would otherwise have to
+/// track by hand.
+List<Uint8List> _entries(Directory dir) {
+  final bytes = File('${dir.path}/entries').readAsBytesSync();
+  return [
+    for (var i = 0; i + 96 <= bytes.length; i += 96)
+      _object(dir, Uint8List.sublistView(bytes, i + 64, i + 96)),
+  ];
+}
+
+Uint8List _object(Directory dir, Uint8List digest) {
+  final id = ObjectId.fromDigest(digest)!;
+  final file = File(
+    '${dir.path}/objects/${id.hex.substring(0, 2)}/${id.hex.substring(2)}',
+  );
+  return file.readAsBytesSync();
+}
 
 void main() {
   late Directory dir;
@@ -77,6 +101,36 @@ void main() {
       final check = journal.check();
       expect(check, isA<Intact>());
       expect((check as Intact).count, 3);
+    },
+  );
+
+  test(
+    'a Decided entry for a Sends reach names the origin and sign-in',
+    () async {
+      final a = airlock();
+      final id = JourneyPathId.parse('conv-1')!;
+      final origin = Origin.parse('https://smba.trafficmanager.net')!;
+
+      await a.record(
+        Decided(
+          id,
+          1,
+          _send(origin, signIn: SignIn.parse('hart-bot')),
+          const Allow(by: DecidedBy.rules),
+        ),
+      );
+      await a.record(
+        Decided(
+          id,
+          2,
+          _send(origin),
+          const Deny('no sign-in', by: DecidedBy.rules),
+        ),
+      );
+
+      final lines = _entries(dir).map(utf8.decode).toList();
+      expect(lines, contains(contains('sends $origin as hart-bot')));
+      expect(lines, contains(contains('sends $origin as no sign-in')));
     },
   );
 

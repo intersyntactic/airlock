@@ -164,7 +164,7 @@ final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
   bool narrows(R fewer, R rules) => _narrows(fewer, rules);
 
   @override
-  Future<void> record(Entry<P> entry) async {
+  Future<void> record(Entry<R, P> entry) async {
     _journal.add(utf8.encode(_describe(entry)));
   }
 }
@@ -174,7 +174,7 @@ final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
 /// and, like the Teams relay's own log line, the reason a run was decided or
 /// what became of it, never a copy of what it carried: no file text, no
 /// program output.
-String _describe<P>(Entry<P> entry) => switch (entry) {
+String _describe<R, P>(Entry<R, P> entry) => switch (entry) {
   Decided(:final journeyPathId, :final place, :final run, :final decision) =>
     'decided $journeyPathId@$place ${_reach(run.reach)} -> ${_decision(decision)}',
   Returned(:final journeyPathId, :final place, :final run, :final outcome) =>
@@ -187,11 +187,6 @@ String _describe<P>(Entry<P> entry) => switch (entry) {
     :final granted,
   ) =>
     'narrowed $journeyPathId@$place -> $child rules=$rules granted=$granted',
-  // Narrowed<R, P> carries its own R, independent of the P this switch is
-  // over, which Dart's exhaustiveness checker can't bind without seeing a
-  // concrete R — unreachable, since Decided/Returned/Narrowed are Entry<P>'s
-  // only subtypes.
-  Entry() => throw StateError('an Entry that is none of its own subtypes'),
 };
 
 String _reach(Reach reach) => switch (reach) {
@@ -199,6 +194,8 @@ String _reach(Reach reach) => switch (reach) {
   Writes(:final file) => 'writes ${file.path}',
   Starts(:final program, :final args) =>
     'starts $program ${args.args.join(' ')}',
+  Sends(:final origin, :final signIn) =>
+    'sends $origin as ${signIn ?? 'no sign-in'}',
 };
 
 String _decision(Decision decision) => switch (decision) {

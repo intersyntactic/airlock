@@ -12,14 +12,7 @@ dependencies:
   is_airlock_api:
     git:
       url: https://github.com/intersyntactic/airlock_api.git
-      ref: 9f1d62ccb314f00610cfc2f4da498c4fbd8566bf
-  # is_effects has never been published to pub.dev — not even 0.1.0:
-  # https://pub.dev/api/packages/is_effects returns 404. This entry exists
-  # only so pub has a hosted constraint to reconcile with the override
-  # below; it is never actually fetched from pub.dev. is_airlock_api 0.2.0
-  # (pinned above) asks for is_effects ^0.1.0 itself, and pub requires every
-  # package naming is_effects to agree on its source, so the override is
-  # load-bearing, not optional.
+      ref: 4de52a9eb0f39dc0358762b8ba583505e6cef69a
   is_effects: ^0.1.0
   # 0.3.0 is not actually on pub.dev yet — https://pub.dev/api/packages/is_journal
   # still shows 0.2.0 latest as of this pin, despite a8's report that
@@ -42,13 +35,3 @@ dev_dependencies:
 # version; teams-module-e2 git-pins this repo at the ref this package
 # hands intersyntactic-a8.
 publish_to: none
-
-dependency_overrides:
-  # Required, not optional — see the comment on the dependencies entry
-  # above. A consumer of this package over git must copy this override
-  # itself: dependency_overrides never reaches a package's own consumers,
-  # only its own resolution. intelligent-reporting hit exactly this.
-  is_effects:
-    git:
-      url: https://github.com/intersyntactic/effects.git
-      ref: c6c50439eb5401fecb462ce55dc538942712b28c
