@@ -75,7 +75,7 @@ final class RecordedAirlock<R> implements Airlock<R> {
   /// prompt it answers, with its status, headers and how it ended. Not
   /// `witness`'s job — a reply's record needs more than bytes and a source,
   /// and a prompt going out is not an arrival.
-  PromptTap prompting(String pass, {DateTime Function()? now}) =>
+  PromptTap prompting(JourneyPathId pass, {DateTime Function()? now}) =>
       PromptTap(_journal, pass, now: now);
 }
 

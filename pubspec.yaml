@@ -13,6 +13,13 @@ dependencies:
     git:
       url: https://github.com/intersyntactic/airlock_api.git
       ref: 7136de43de8b2ac036e2619c8ddd7793f1f57fab
+  # is_effects has never been published to pub.dev — not even 0.1.0:
+  # https://pub.dev/api/packages/is_effects returns 404. This entry exists
+  # only so pub has a hosted constraint to reconcile with the override
+  # below; it is never actually fetched from pub.dev. is_airlock_api 0.2.0
+  # (pinned above) asks for is_effects ^0.1.0 itself, and pub requires every
+  # package naming is_effects to agree on its source, so the override is
+  # load-bearing, not optional.
   is_effects: ^0.1.0
   is_journal: ^0.2.0
 
@@ -28,9 +35,10 @@ dev_dependencies:
 publish_to: none
 
 dependency_overrides:
-  # is_airlock_api 0.2.0 asks for is_effects ^0.1.0, but 0.1.0 on pub.dev
-  # predates the sending-out fields coming out of Args. Pinned past them
-  # until is_effects publishes past 0.1.0.
+  # Required, not optional — see the comment on the dependencies entry
+  # above. A consumer of this package over git must copy this override
+  # itself: dependency_overrides never reaches a package's own consumers,
+  # only its own resolution. intelligent-reporting hit exactly this.
   is_effects:
     git:
       url: https://github.com/intersyntactic/effects.git

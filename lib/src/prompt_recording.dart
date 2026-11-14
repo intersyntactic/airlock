@@ -15,6 +15,7 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_journal/is_journal.dart';
 
 import 'arrival_source.dart';
@@ -96,9 +97,8 @@ final class PromptRecord {
     required this.body,
   });
 
-  /// The pass that sent it: the name intersyntactic's record gives the run
-  /// a prompt belongs to.
-  final String pass;
+  /// The pass that sent it: the journey path a prompt belongs to.
+  final JourneyPathId pass;
 
   /// The model it went to, such as `claude` or `ollama`. Not [pass]'s job:
   /// [pass] says which run sent it, this says which model answered.
@@ -117,7 +117,7 @@ final class PromptRecord {
   final Uint8List body;
 
   Uint8List toBytes() => _crossing(_prompt, {
-    'journey': pass,
+    'journey': pass.value,
     'source': source.value,
     'to': '$to',
     'sent': sent.toUtc().toIso8601String(),
@@ -135,7 +135,9 @@ final class PromptRecord {
       'headers': final headers,
     }) {
       return PromptRecord(
-        pass: pass,
+        pass:
+            JourneyPathId.parse(pass) ??
+            (throw FormatException('not a journey path id', pass)),
         source:
             ArrivalSource.parse(source) ??
             (throw FormatException('not a source', source)),
@@ -258,17 +260,17 @@ final class ReplyRecord {
   }
 }
 
-/// Records each prompt made under [pass] in a journal: [RecordedAirlock]'s
-/// own, from [RecordedAirlock.prompting].
+/// Records each prompt made under [pass] in a journal — [RecordedAirlock]'s
+/// own, from [RecordedAirlock.prompting] — and reads them back ([prompt],
+/// [reply]), so a sender needs no other handle on the journal.
 final class PromptTap {
   PromptTap(this._journal, this.pass, {DateTime Function()? now})
     : now = now ?? DateTime.now;
 
   final Journal _journal;
 
-  /// The name intersyntactic's record gives the run making this pass's
-  /// prompts.
-  final String pass;
+  /// The journey path making this pass's prompts.
+  final JourneyPathId pass;
 
   /// When each prompt goes up and each reply ends.
   final DateTime Function() now;
@@ -293,6 +295,16 @@ final class PromptTap {
     );
     return ReplyTap._(this, PromptId._(_journal.add(prompt.toBytes())));
   }
+
+  /// The prompt recorded as [id], read back. The tap is the only handle
+  /// that can read its own record, so a sender never needs the journal
+  /// itself, nor a second handle that might not point at the same one.
+  PromptRecord prompt(PromptId id) =>
+      PromptRecord.fromBytes(_journal.get(id.object)!);
+
+  /// The reply recorded at [id] — what [ReplyTap.ended] returned — read
+  /// back.
+  ReplyRecord reply(ObjectId id) => ReplyRecord.fromBytes(_journal.get(id)!);
 }
 
 /// Gathers one reply's bytes as they arrive and records them when it ends.

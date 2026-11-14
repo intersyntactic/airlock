@@ -79,7 +79,7 @@ Going out is as recordable as coming in. `RecordedAirlock.prompting` gives
 a `PromptTap` that writes the same airlock's journal:
 
 ```dart
-final tap = airlock.prompting('journey-name');
+final tap = airlock.prompting(JourneyPathId.parse('journey-name')!);
 final reply = tap.sending(ArrivalSource.parse('claude')!, to, bodyBytes, headers);
 // ...send the request, feed the response to reply...
 reply.status(200, responseHeaders);

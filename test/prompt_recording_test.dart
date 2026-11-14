@@ -12,6 +12,7 @@ late Journal journal;
 final to = Uri.parse('https://api.anthropic.com/v1/messages?beta=true');
 final at = DateTime.utc(2026, 11, 10, 9, 30);
 final claude = ArrivalSource.parse('claude')!;
+final pass = JourneyPathId.parse('one')!;
 
 Uint8List bytes(String s) => utf8.encode(s);
 
@@ -36,7 +37,7 @@ void main() {
       // A line break in the body: only the first one, after the notes, ends them.
       final body = bytes('{"model":"m","messages":[]}\n{"second":"line"}');
       final written = PromptRecord(
-        pass: 'one',
+        pass: pass,
         source: claude,
         to: to,
         sent: at,
@@ -60,7 +61,7 @@ void main() {
       });
 
       final read = PromptRecord.fromBytes(written);
-      expect(read.pass, 'one');
+      expect(read.pass, pass);
       expect(read.source, claude);
       expect(read.to, to);
       expect(read.sent, at);
@@ -79,7 +80,7 @@ void main() {
       test('a reply that ended ${end.wire} reads back naming its prompt', () {
         final prompt = PromptTap(
           journal,
-          'one',
+          pass,
           now: () => at,
         ).sending(claude, to, bytes('{}'), const {}).prompt;
         final read = ReplyRecord.fromBytes(
@@ -110,7 +111,7 @@ void main() {
       () {
         final prompt = PromptTap(
           journal,
-          'one',
+          pass,
         ).sending(claude, to, bytes('{}'), const {}).prompt;
         final written = ReplyRecord(
           prompt: prompt,
@@ -129,7 +130,7 @@ void main() {
 
     test('a reply is not read as a prompt, nor a prompt as a reply', () {
       final prompt = PromptRecord(
-        pass: 'one',
+        pass: pass,
         source: claude,
         to: to,
         sent: at,
@@ -139,7 +140,7 @@ void main() {
       expect(() => ReplyRecord.fromBytes(prompt), throwsFormatException);
       final tap = PromptTap(
         journal,
-        'one',
+        pass,
       ).sending(claude, to, bytes('{}'), const {});
       final reply = ReplyRecord(
         prompt: tap.prompt,
@@ -157,7 +158,7 @@ void main() {
 
     test('a record is read as the kind its first line says, even when its fields would fit another', () {
       final prompt = PromptRecord(
-        pass: 'one',
+        pass: pass,
         source: claude,
         to: to,
         sent: at,
@@ -178,7 +179,7 @@ void main() {
       final body = bytes('{"model":"m"}');
       final reply = PromptTap(
         journal,
-        'one',
+        pass,
         now: () => at,
       ).sending(claude, to, body, {'x-app': 'cli'});
       expect(entries(journal), 1);
@@ -196,7 +197,7 @@ void main() {
         expect(
           () => PromptTap(
             journal,
-            'one',
+            pass,
           ).sending(claude, to, bytes('{}'), const {}),
           throwsStateError,
         );
@@ -207,7 +208,7 @@ void main() {
     test('the reply is its pieces as they arrived, recorded once it ends, naming its prompt', () {
       final reply = PromptTap(
         journal,
-        'one',
+        pass,
         now: () => at,
       ).sending(claude, to, bytes('{}'), const {});
       reply
@@ -229,7 +230,7 @@ void main() {
     test(
       'a reply the journal cannot take throws, so its answer is never used',
       () {
-        final reply = PromptTap(journal, 'one').sending(
+        final reply = PromptTap(journal, pass).sending(
           claude,
           to,
           bytes('{}'),
@@ -237,6 +238,19 @@ void main() {
         )..chunk(bytes('the answer'));
         journal.close();
         expect(() => reply.ended(const ReplyComplete()), throwsStateError);
+      },
+    );
+
+    test(
+      'a tap reads back the prompt and reply it recorded, by their own ids',
+      () {
+        final body = bytes('{"model":"m"}');
+        final tap = PromptTap(journal, pass, now: () => at);
+        final reply = tap.sending(claude, to, body, const {});
+        final id = reply.ended(const ReplyComplete());
+
+        expect(tap.prompt(reply.prompt).body, body);
+        expect(tap.reply(id).end, const ReplyComplete());
       },
     );
   });
@@ -249,7 +263,7 @@ void main() {
     );
 
     test('shares the airlock\'s own journal', () {
-      final tap = airlock().prompting('one', now: () => at);
+      final tap = airlock().prompting(pass, now: () => at);
       tap.sending(claude, to, bytes('{}'), const {});
       expect(entries(journal), 1);
     });
