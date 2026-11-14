@@ -9,49 +9,27 @@ import 'package:is_journal/is_journal.dart';
 import 'arrival_source.dart';
 import 'prompt_recording.dart';
 
-/// An [Airlock] whose record is a [Journal]: an [Entry] is one journal entry,
-/// never written before its [Decided] or read before its [Returned], exactly
-/// as [Airlock.record]'s contract asks.
+/// Witnesses arrivals and sends prompts into a [Journal], needing no
+/// journey path's rules to do either.
 ///
-/// What a run may do under `R` is the app's rules, not this package's: a
-/// journey path's `R` is whatever its host defines, so [decide] and [narrows]
-/// are given as functions rather than a shape this package would have to
-/// guess at. What this package owns is durability — the journal, one writer,
-/// chained and checked — not policy. `P`, the host's place-in-a-turn type,
-/// is never read here either: it is logged by whatever it prints as, same
-/// as everything else an entry carries.
-final class RecordedAirlock<R, P> implements Airlock<R, P> {
-  RecordedAirlock(
-    this._journal, {
-    required this._decide,
-    required this._narrows,
-    HttpClient? client,
-  }) : _client = client ?? HttpClient();
+/// What a run may do is a journey path's own business — [RecordedAirlock]
+/// adds that on top of this, for whoever has rules to bring. A caller with
+/// no run and no rules, such as a pipeline sending a prompt on its own
+/// behalf, builds a [Witness] directly rather than inventing a policy it
+/// doesn't have, which is exactly the "pose as a journey path" shape
+/// Nick ruled out for prompts.
+class Witness {
+  Witness(this._journal, {HttpClient? client})
+    : _client = client ?? (HttpClient()..autoUncompress = false);
 
   final Journal _journal;
   final HttpClient _client;
-  final Decision Function(Run<Object?> run, R rules) _decide;
-  final bool Function(R fewer, R rules) _narrows;
-
-  @override
-  Future<Decision> decide(Run<Object?> run, R rules) async =>
-      _decide(run, rules);
-
-  @override
-  bool narrows(R fewer, R rules) => _narrows(fewer, rules);
-
-  @override
-  Future<void> record(Entry<P> entry) async {
-    _journal.add(utf8.encode(_describe(entry)));
-  }
 
   /// Witnesses [bytes] arriving from [source], before anything reads them:
-  /// the airlock's own record of an arrival, kept in the same journal as
-  /// every [Entry], an entry [Airlock.record] has no way to take — and
-  /// never will: `is_airlock_api` defines no `Witnessed` entry at all,
-  /// since no tool is involved and so the contract has nothing to guard.
-  /// Witnessing, of arrivals and of prompts alike, is entirely this
-  /// package's job.
+  /// the airlock's own record of an arrival. `is_airlock_api` defines no
+  /// `Witnessed` entry at all, and never will: no tool is involved, so the
+  /// contract has nothing to guard. Witnessing, of arrivals and of
+  /// prompts alike, is entirely this package's job.
   ///
   /// [bytes] is deliberately the only thing this takes about what arrived:
   /// not a type the caller has already read fields out of. Whatever a
@@ -75,22 +53,31 @@ final class RecordedAirlock<R, P> implements Airlock<R, P> {
   );
 
   /// Sends [body] to [to], as one prompt under [pass] from [source], with
-  /// [headers], and records both it and its reply. Returns the reply
-  /// exactly as recorded — the airlock is the only thing that sends a
-  /// prompt through it, so what a caller reads back is what the journal
-  /// holds, never a second copy of the same bytes read some other way.
+  /// [headers], and records both it and its reply. Returns the reply's own
+  /// id alongside it, exactly as recorded — the airlock is the only thing
+  /// that sends a prompt through it, so what a caller reads back is what
+  /// the journal holds, never a second copy of the same bytes read some
+  /// other way.
   ///
   /// The prompt is recorded (its headers [masked]) before anything is
-  /// sent; if it can't be, nothing is sent. The reply is gathered as it
-  /// arrives and recorded once its body is over, whether it completed or
-  /// [ReplyFailed]. If the reply can't be recorded, the error from the
-  /// journal is thrown — an answer with no record of how it arrived is
-  /// not used — even though it was already received.
+  /// sent; if it can't be, nothing is sent. [headers] are sent exactly as
+  /// given and recorded exactly as given, masked: no compression is
+  /// negotiated unless [headers] asks for it (`Accept-Encoding` is not
+  /// added here, and `autoUncompress` is off on a client this makes for
+  /// itself), so the bytes on the wire, in the record, and returned are
+  /// always the same bytes — not whatever this process's HTTP client
+  /// would otherwise have decided to ask for or unpack.
+  ///
+  /// The reply is gathered as it arrives and recorded once its body is
+  /// over, whether it completed or [ReplyFailed]. If the reply can't be
+  /// recorded, the error from the journal is thrown — an answer with no
+  /// record of how it arrived is not used — even though it was already
+  /// received.
   ///
   /// No sender holds a connection or a recorder of its own: sending a
   /// prompt and witnessing it happen together, by construction, not by a
   /// sender remembering to call both.
-  Future<ReplyRecord> prompt(
+  Future<(ObjectId, ReplyRecord)> prompt(
     JourneyPathId pass,
     ArrivalSource source,
     Uri to,
@@ -115,6 +102,10 @@ final class RecordedAirlock<R, P> implements Airlock<R, P> {
     ReplyEnd end;
     try {
       final request = await _client.postUrl(to);
+      // dart:io adds its own Accept-Encoding by default; removed so the
+      // only compression asked for is what the caller's own headers ask
+      // for, and the reply's bytes match what its headers say they are.
+      request.headers.removeAll(HttpHeaders.acceptEncodingHeader);
       headers.forEach(request.headers.set);
       request.add(body);
       final response = await request.close();
@@ -138,8 +129,43 @@ final class RecordedAirlock<R, P> implements Airlock<R, P> {
       ended: nowFn(),
       body: collected.takeBytes(),
     );
-    _journal.add(replyRecord.toBytes());
-    return replyRecord;
+    final replyId = _journal.add(replyRecord.toBytes());
+    return (replyId, replyRecord);
+  }
+}
+
+/// An [Airlock] whose record is a [Journal]: an [Entry] is one journal entry,
+/// never written before its [Decided] or read before its [Returned], exactly
+/// as [Airlock.record]'s contract asks.
+///
+/// What a run may do under `R` is the app's rules, not this package's: a
+/// journey path's `R` is whatever its host defines, so [decide] and [narrows]
+/// are given as functions rather than a shape this package would have to
+/// guess at. What this package owns is durability — the journal, one writer,
+/// chained and checked — not policy. `P`, the host's place-in-a-turn type,
+/// is never read here either: it is logged by whatever it prints as, same
+/// as everything else an entry carries.
+final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
+  RecordedAirlock(
+    super._journal, {
+    required this._decide,
+    required this._narrows,
+    super.client,
+  });
+
+  final Decision Function(Run<Object?> run, R rules) _decide;
+  final bool Function(R fewer, R rules) _narrows;
+
+  @override
+  Future<Decision> decide(Run<Object?> run, R rules) async =>
+      _decide(run, rules);
+
+  @override
+  bool narrows(R fewer, R rules) => _narrows(fewer, rules);
+
+  @override
+  Future<void> record(Entry<P> entry) async {
+    _journal.add(utf8.encode(_describe(entry)));
   }
 }
 

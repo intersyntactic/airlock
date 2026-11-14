@@ -31,11 +31,25 @@ app-specific knowledge to get right. `P`, the host's place-in-a-turn type
 that every entry now carries, is likewise never read here — `RecordedAirlock`
 logs it however it prints, and nothing more.
 
+## Witness: the part that needs no rules
+
+`witness` and `prompt` don't need a journey path's `R` or `P` at all —
+only a journal and, for `prompt`, an HTTP client. They live on `Witness`,
+which `RecordedAirlock` extends; a caller with no runs and no rules (a
+pipeline sending its own prompts, say) builds a bare `Witness` directly,
+rather than inventing a `decide`/`narrows` it doesn't have just to reach
+`prompt` — that's the same "pose as a journey path" shape Nick ruled out
+for sending itself.
+
+```dart
+final witness = Witness(journal);
+```
+
 ## Witnessing an arrival
 
 "Nothing reaches the world unseen" applies on the way in, too. Before
 anything reads an arrival — parses it, decides what it means, acts on it —
-`RecordedAirlock.witness` records it, exactly as it came:
+`Witness.witness` records it, exactly as it came:
 
 ```dart
 airlock.witness(requestBodyBytes, source: ArrivalSource.parse('teams')!);
@@ -80,18 +94,19 @@ picked the right fields.
 
 Going out is as recordable as coming in — and, per Nick's ruling, the
 airlock is the only thing that sends: no caller holds its own connection
-or its own recorder. `RecordedAirlock.prompt` sends the prompt, records it
+or its own recorder. `Witness.prompt` sends the prompt, records it
 (headers masked) before anything goes, gathers the reply as it arrives,
-records that too, and hands back exactly what it recorded:
+records that too, and hands back the reply's own id alongside exactly
+what it recorded:
 
 ```dart
-final reply = await airlock.prompt(
+final (replyId, reply) = await witness.prompt(
   JourneyPathId.parse('journey-name')!,
   ArrivalSource.parse('claude')!,
   to,
   bodyBytes,
   headers, // the real headers, including the credential; prompt masks
-           // them for the record, but sends these
+           // them for the record, but sends these exactly as given
 );
 // reply.status, reply.headers, reply.body, reply.end — what the journal
 // holds, not a second copy of the same bytes read some other way.
@@ -103,6 +118,16 @@ sent, rather than ever letting an unrecorded prompt out. A failed send
 reply with `ReplyFailed` and no status, not left unrecorded because
 nothing came back. The reply's entry names the id of the prompt's entry
 (`PromptId`), so the journal can always say which answers which.
+
+`prompt` sends [headers] exactly as given, nothing more: it never adds its
+own `Accept-Encoding`, and the client it makes for itself has
+`autoUncompress` off, so a server's compressed reply arrives, is recorded,
+and is returned as the same compressed bytes its own headers say they
+are. Compression happens only when the caller's own headers ask for it —
+otherwise the bytes on the wire, in the record, and handed back are
+identical, which is the whole point of recording "exactly as it came."
+Passing a custom client does not relax this: the header is stripped per
+request regardless of which client sends it.
 
 This followed a design Nick ruled out: an earlier version gave a caller a
 `PromptTap`/`ReplyTap` it drove itself, doing its own HTTP alongside — a

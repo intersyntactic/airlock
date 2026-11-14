@@ -165,16 +165,14 @@ void main() {
     });
   });
 
-  group('RecordedAirlock.prompt', () {
+  group('Witness.prompt', () {
     late HttpServer server;
     late Uri serverTo;
 
-    RecordedAirlock<Object?, Object?> airlock() =>
-        RecordedAirlock<Object?, Object?>(
-          journal,
-          decide: (run, rules) => const Allow(by: DecidedBy.rules),
-          narrows: (fewer, rules) => true,
-        );
+    // A pipeline sending its own prompts needs no rules and decides no
+    // runs, so it builds a bare Witness — never a RecordedAirlock, which
+    // would mean inventing policy it doesn't have.
+    Witness witness() => Witness(journal);
 
     tearDown(() async {
       await server.close(force: true);
@@ -196,10 +194,17 @@ void main() {
       }());
 
       final body = bytes('{"model":"m"}');
-      final reply = await airlock().prompt(pass, claude, serverTo, body, {
-        'authorization': 'Bearer secret-token',
-        'content-type': 'application/json',
-      }, now: () => at);
+      final (replyId, reply) = await witness().prompt(
+        pass,
+        claude,
+        serverTo,
+        body,
+        {
+          'authorization': 'Bearer secret-token',
+          'content-type': 'application/json',
+        },
+        now: () => at,
+      );
 
       expect(await requestBody.future, '{"model":"m"}');
       expect(reply.status, 200);
@@ -208,12 +213,48 @@ void main() {
       expect(reply.end, const ReplyComplete());
       expect(reply.ended, at);
 
-      // Two entries: the prompt, then the reply.
+      // Two entries: the prompt, then the reply, and the reply's own id
+      // reads back the same bytes the call returned.
       expect(entries(journal), 2);
+      expect(ReplyRecord.fromBytes(journal.get(replyId)!).body, reply.body);
       final kept = PromptRecord.fromBytes(journal.get(reply.prompt.object)!);
       expect(kept.headers['authorization'], 'Bearer [masked]');
       expect(kept.body, body);
       expect(kept.source, claude);
+    });
+
+    test('no Accept-Encoding is added, so the body recorded matches the body sent, compressed or not', () async {
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      serverTo = Uri.parse('http://127.0.0.1:${server.port}/v1/messages');
+      final sawAcceptEncoding = Completer<String?>();
+      final gzipped = gzip.encode(utf8.encode('plain text reply'));
+      unawaited(() async {
+        final req = await server.first;
+        await req.drain<void>();
+        sawAcceptEncoding.complete(
+          req.headers.value(HttpHeaders.acceptEncodingHeader),
+        );
+        req.response.headers.set(HttpHeaders.contentEncodingHeader, 'gzip');
+        req.response.add(gzipped);
+        await req.response.close();
+      }());
+
+      final (_, reply) = await witness().prompt(
+        pass,
+        claude,
+        serverTo,
+        bytes('{}'),
+        const {'accept-encoding': 'gzip'},
+        now: () => at,
+      );
+
+      // The caller asked for gzip itself; nothing was added on its behalf.
+      expect(await sawAcceptEncoding.future, 'gzip');
+      // Recorded and returned as the compressed bytes the server actually
+      // sent, matching the content-encoding header recorded alongside
+      // them — not silently decompressed by the client underneath.
+      expect(reply.body, gzipped);
+      expect(reply.headers[HttpHeaders.contentEncodingHeader], ['gzip']);
     });
 
     test(
@@ -223,7 +264,7 @@ void main() {
         server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
 
         await expectLater(
-          airlock().prompt(
+          witness().prompt(
             pass,
             claude,
             Uri.parse('http://127.0.0.1:${server.port}/'),
@@ -241,7 +282,7 @@ void main() {
       final unreachable = Uri.parse('http://127.0.0.1:${server.port}/');
       await server.close(force: true);
 
-      final reply = await airlock().prompt(
+      final (_, reply) = await witness().prompt(
         pass,
         claude,
         unreachable,
@@ -253,6 +294,34 @@ void main() {
       expect(reply.status, isNull);
       expect(reply.end, isA<ReplyFailed>());
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    });
+  });
+
+  group('RecordedAirlock', () {
+    test('is also a Witness: prompt works the same way', () async {
+      final airlock = RecordedAirlock<Object?, Object?>(
+        journal,
+        decide: (run, rules) => const Allow(by: DecidedBy.rules),
+        narrows: (fewer, rules) => true,
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      unawaited(
+        server.first.then((req) async {
+          await req.drain<void>();
+          await req.response.close();
+        }),
+      );
+
+      final (_, reply) = await airlock.prompt(
+        pass,
+        claude,
+        Uri.parse('http://127.0.0.1:${server.port}/'),
+        bytes('{}'),
+        const {},
+      );
+
+      expect(reply.end, const ReplyComplete());
+      await server.close(force: true);
     });
   });
 
