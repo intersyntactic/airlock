@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
@@ -7,29 +6,28 @@ import 'package:is_effects/is_effects.dart';
 import 'package:is_journal/is_journal.dart';
 
 import 'arrival_source.dart';
-import 'prompt_recording.dart';
 
-/// Witnesses arrivals and sends prompts into a [Journal], needing no
-/// journey path's rules to do either.
+/// Witnesses arrivals into a [Journal], needing no journey path's rules to
+/// do it.
 ///
 /// What a run may do is a journey path's own business — [RecordedAirlock]
 /// adds that on top of this, for whoever has rules to bring. A caller with
-/// no run and no rules, such as a pipeline sending a prompt on its own
-/// behalf, builds a [Witness] directly rather than inventing a policy it
-/// doesn't have, which is exactly the "pose as a journey path" shape
-/// Nick ruled out for prompts.
+/// no run and no rules — just arrivals to witness — builds a [Witness]
+/// directly rather than inventing a policy it doesn't have.
+///
+/// Sending a prompt to a model is not here, and not the airlock's job at
+/// all: Nick's reshape (14 Nov) has the agent loop write each turn to the
+/// journal itself, and a model call's bytes recorded by whatever sends
+/// them (`claude -p`'s proxy, in `agent_loop`), not by this package.
 class Witness {
-  Witness(this._journal, {HttpClient? client})
-    : _client = client ?? (HttpClient()..autoUncompress = false);
+  Witness(this._journal);
 
   final Journal _journal;
-  final HttpClient _client;
 
   /// Witnesses [bytes] arriving from [source], before anything reads them:
   /// the airlock's own record of an arrival. `is_airlock_api` defines no
   /// `Witnessed` entry at all, and never will: no tool is involved, so the
-  /// contract has nothing to guard. Witnessing, of arrivals and of
-  /// prompts alike, is entirely this package's job.
+  /// contract has nothing to guard.
   ///
   /// [bytes] is deliberately the only thing this takes about what arrived:
   /// not a type the caller has already read fields out of. Whatever a
@@ -51,87 +49,6 @@ class Witness {
       }),
     ),
   );
-
-  /// Sends [body] to [to], as one prompt under [pass] from [source], with
-  /// [headers], and records both it and its reply. Returns the reply's own
-  /// id alongside it, exactly as recorded — the airlock is the only thing
-  /// that sends a prompt through it, so what a caller reads back is what
-  /// the journal holds, never a second copy of the same bytes read some
-  /// other way.
-  ///
-  /// The prompt is recorded (its headers [masked]) before anything is
-  /// sent; if it can't be, nothing is sent. [headers] are sent exactly as
-  /// given and recorded exactly as given, masked: no compression is
-  /// negotiated unless [headers] asks for it (`Accept-Encoding` is not
-  /// added here, and `autoUncompress` is off on a client this makes for
-  /// itself), so the bytes on the wire, in the record, and returned are
-  /// always the same bytes — not whatever this process's HTTP client
-  /// would otherwise have decided to ask for or unpack.
-  ///
-  /// The reply is gathered as it arrives and recorded once its body is
-  /// over, whether it completed or [ReplyFailed]. If the reply can't be
-  /// recorded, the error from the journal is thrown — an answer with no
-  /// record of how it arrived is not used — even though it was already
-  /// received.
-  ///
-  /// No sender holds a connection or a recorder of its own: sending a
-  /// prompt and witnessing it happen together, by construction, not by a
-  /// sender remembering to call both.
-  Future<(ObjectId, ReplyRecord)> prompt(
-    JourneyPathId pass,
-    ArrivalSource source,
-    Uri to,
-    Uint8List body,
-    Map<String, String> headers, {
-    DateTime Function()? now,
-  }) async {
-    final nowFn = now ?? DateTime.now;
-    final promptRecord = PromptRecord(
-      pass: pass,
-      source: source,
-      to: to,
-      sent: nowFn(),
-      headers: MaskedHeaders.of(headers),
-      body: body,
-    );
-    final promptId = PromptId.of(_journal.add(promptRecord.toBytes()));
-
-    int? status;
-    var replyHeaders = const <String, List<String>>{};
-    final collected = BytesBuilder(copy: true);
-    ReplyEnd end;
-    try {
-      final request = await _client.postUrl(to);
-      // dart:io adds its own Accept-Encoding by default; removed so the
-      // only compression asked for is what the caller's own headers ask
-      // for, and the reply's bytes match what its headers say they are.
-      request.headers.removeAll(HttpHeaders.acceptEncodingHeader);
-      headers.forEach(request.headers.set);
-      request.add(body);
-      final response = await request.close();
-      status = response.statusCode;
-      final gathered = <String, List<String>>{};
-      response.headers.forEach((name, values) => gathered[name] = values);
-      replyHeaders = gathered;
-      await for (final chunk in response) {
-        collected.add(chunk);
-      }
-      end = const ReplyComplete();
-    } on Exception catch (e) {
-      end = ReplyFailed('$e');
-    }
-
-    final replyRecord = ReplyRecord(
-      prompt: promptId,
-      status: status,
-      headers: replyHeaders,
-      end: end,
-      ended: nowFn(),
-      body: collected.takeBytes(),
-    );
-    final replyId = _journal.add(replyRecord.toBytes());
-    return (replyId, replyRecord);
-  }
 }
 
 /// An [Airlock] whose record is a [Journal]: an [Entry] is one journal entry,
@@ -150,7 +67,6 @@ final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
     super._journal, {
     required this._decide,
     required this._narrows,
-    super.client,
   });
 
   final Decision Function(Run<Object?> run, R rules) _decide;

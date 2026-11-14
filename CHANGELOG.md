@@ -81,3 +81,15 @@
   `intelligent-reporting`'s pipeline: the real credential sent on the
   wire never appears anywhere in the journal's stored bytes, scanned
   directly, not just the one field a decoder happens to read back.
+- Remove `Witness.prompt` and everything built for it (`PromptRecord`,
+  `ReplyRecord`, `PromptId`, `ReplyEnd`/`ReplyComplete`/`ReplyCancelled`/
+  `ReplyFailed`, `MaskedHeaders`, `masked`) — all of the above six entries
+  describe work this package no longer does. Nick's reshape of 14 Nov:
+  the conversation does not go through the airlock at all. The agent
+  loop writes each turn to the journal itself, and a model call's bytes
+  are recorded by whatever sends them (`claude -p`'s proxy, in
+  `agent_loop`), not by `is_airlock`. `Witness` keeps only `witness`;
+  `RecordedAirlock` no longer takes an `HttpClient`, since nothing here
+  sends anything. Kept out of `is_airlock`'s own history is fine —
+  `git log` before 14 Nov 2026 has the design if it's needed again,
+  wherever it actually ends up living.
