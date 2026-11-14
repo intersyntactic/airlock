@@ -1,57 +1,43 @@
-/// The airlock as its own service: owns a journal and a Unix socket, and
-/// witnesses what a client (a relay that cannot hold a journal itself)
-/// sends it.
+/// The airlock as its own service: a relay client (the Teams relay) that
+/// cannot reach `is_journal`'s one writer service itself connects here
+/// instead, and has its arrivals witnessed.
 ///
-/// `is_journal` 0.3.0 can run compiled, given its code hash at build time:
-///
-///     dart compile exe $(dart run is_journal:code_hash) bin/airlock_service.dart
-///
-/// Run from source (`dart run`), no define is needed — `Journal.open`
-/// computes the hash from its own source instead.
+/// This binary holds no journal of its own: it is one of the writer
+/// service's senders, over [RecordClient]. No code hash, no compiled-build
+/// define — that concern belongs entirely to the writer service's own
+/// build now.
 ///
 /// Environment:
-///   AIRLOCK_JOURNAL_DIR  the journal's directory (created if absent)
-///   AIRLOCK_SOCKET_PATH  the Unix socket path to serve on (removed first
-///                        if a stale one is there)
-///   AIRLOCK_SOCKET_MODE  the socket file's permission bits, as `chmod`
-///                        takes them; default `600` (owner only). The
-///                        socket's group is whatever this process's own
-///                        group is — there is no separate group setting
-///                        here — so a client running as a different
-///                        user needs `660` plus that client's own unit
-///                        granted this one's group as a supplementary
-///                        group (systemd `SupplementaryGroups=`), not a
-///                        setgid bit on the socket's directory: a
-///                        `RuntimeDirectory` is already owned by its
-///                        unit's `User`/`Group`, which systemd gives it
-///                        no way to set apart from that unit's own.
+///   AIRLOCK_RECORD_SOCKET  the writer service's Unix socket
+///                          (`is_journal`'s `JOURNAL_SOCKET`)
+///   AIRLOCK_SOCKET_PATH    the Unix socket this service itself serves
+///                          relay clients on (removed first if a stale
+///                          one is there)
+///   AIRLOCK_SOCKET_MODE    this service's own socket's permission bits,
+///                          as `chmod` takes them; default `600` (owner
+///                          only). The socket's group is whatever group
+///                          this process runs as; a client in a
+///                          different user grants itself access via a
+///                          supplementary group (systemd
+///                          `SupplementaryGroups=`), not a directory
+///                          setting.
 library;
 
 import 'dart:async';
 import 'dart:io';
 
+import 'package:is_airlock/src/record_client.dart';
 import 'package:is_airlock/src/recorded_airlock.dart';
 import 'package:is_airlock/src/witness_service.dart';
-import 'package:is_journal/is_journal.dart';
 
 Future<void> main() async {
-  final journalDir = Platform.environment['AIRLOCK_JOURNAL_DIR'];
+  final recordSocket = Platform.environment['AIRLOCK_RECORD_SOCKET'];
   final socketPath = Platform.environment['AIRLOCK_SOCKET_PATH'];
-  if (journalDir == null || socketPath == null) {
+  if (recordSocket == null || socketPath == null) {
     stderr.writeln(
-      'airlock service: set AIRLOCK_JOURNAL_DIR and AIRLOCK_SOCKET_PATH',
+      'airlock service: set AIRLOCK_RECORD_SOCKET and AIRLOCK_SOCKET_PATH',
     );
     exitCode = 64;
-    return;
-  }
-
-  final journal = Journal.open(Directory(journalDir));
-  if (journal == null) {
-    stderr.writeln(
-      'airlock service: cannot name its own code (is_journal.ownHash); '
-      'refusing to open a journal with no code hash',
-    );
-    exitCode = 1;
     return;
   }
 
@@ -73,7 +59,8 @@ Future<void> main() async {
       }),
   ];
 
-  await WitnessService(Witness(journal)).serve(server, stop: stopping.future);
+  await WitnessService(Witness(RecordClient(recordSocket)))
+      .serve(server, stop: stopping.future);
 
   // A signal's watch() stream has no natural end, so main() returning
   // would leave the VM with listeners still pending, never actually
@@ -82,7 +69,6 @@ Future<void> main() async {
     await s.cancel();
   }
   await server.close();
-  journal.close();
   if (socketFile.existsSync()) socketFile.deleteSync();
   stderr.writeln('airlock service: stopped');
 }

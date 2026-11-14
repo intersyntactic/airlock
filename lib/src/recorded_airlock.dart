@@ -6,9 +6,10 @@ import 'package:is_effects/is_effects.dart';
 import 'package:is_journal/is_journal.dart';
 
 import 'arrival_source.dart';
+import 'record_client.dart';
 
-/// Witnesses arrivals into a [Journal], needing no journey path's rules to
-/// do it.
+/// Witnesses arrivals, sending each to `is_journal`'s one writer over a
+/// [RecordClient], needing no journey path's rules to do it.
 ///
 /// What a run may do is a journey path's own business — [RecordedAirlock]
 /// adds that on top of this, for whoever has rules to bring. A caller with
@@ -19,10 +20,15 @@ import 'arrival_source.dart';
 /// all: Nick's reshape (14 Nov) has the agent loop write each turn to the
 /// journal itself, and a model call's bytes recorded by whatever sends
 /// them (`claude -p`'s proxy, in `agent_loop`), not by this package.
+///
+/// Nor does this package hold a journal of its own any more (Nick's
+/// ruling, 15 Nov): `is_journal`'s one writer is the record's one writer,
+/// for every sender, and this is one of its senders, not another holder
+/// of the file.
 class Witness {
-  Witness(this._journal);
+  Witness(this._record);
 
-  final Journal _journal;
+  final RecordClient _record;
 
   /// Witnesses [bytes] arriving from [source], before anything reads them:
   /// the airlock's own record of an arrival. `is_airlock_api` defines no
@@ -34,37 +40,34 @@ class Witness {
   /// caller hands in here is what "exactly as it came" means, so a caller
   /// that has already parsed its arrival should witness the bytes it
   /// parsed from, not the fields it kept.
-  ObjectId witness(
+  Future<EntryHash> witness(
     Uint8List bytes, {
     required ArrivalSource source,
     DateTime? at,
-  }) => _journal.add(
+  }) => _record.send(
+    'witnessed',
     utf8.encode(
       jsonEncode({
-        'witnessed': {
-          'at': (at ?? DateTime.now().toUtc()).toIso8601String(),
-          'source': source.value,
-          'bytes': base64Encode(bytes),
-        },
+        'at': (at ?? DateTime.now().toUtc()).toIso8601String(),
+        'source': source.value,
+        'bytes': base64Encode(bytes),
       }),
     ),
   );
 }
 
-/// An [Airlock] whose record is a [Journal]: an [Entry] is one journal entry,
-/// never written before its [Decided] or read before its [Returned], exactly
-/// as [Airlock.record]'s contract asks.
+/// An [Airlock] that sends what it decides and records to `is_journal`'s
+/// one writer, over the same [RecordClient] [Witness] sends arrivals to.
 ///
 /// What a run may do under `R` is the app's rules, not this package's: a
 /// journey path's `R` is whatever its host defines, so [decide] and [narrows]
 /// are given as functions rather than a shape this package would have to
-/// guess at. What this package owns is durability — the journal, one writer,
-/// chained and checked — not policy. `P`, the host's place-in-a-turn type,
-/// is never read here either: it is logged by whatever it prints as, same
-/// as everything else an entry carries.
+/// guess at. `P`, the host's place-in-a-turn type, is never read here
+/// either: it is logged by whatever it prints as, same as everything else
+/// an entry carries.
 final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
   RecordedAirlock(
-    super._journal, {
+    super._record, {
     required this._decide,
     required this._narrows,
   });
@@ -81,20 +84,25 @@ final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
 
   @override
   Future<void> record(Entry<R, P> entry) async {
-    _journal.add(utf8.encode(_describe(entry)));
+    final (kind, body) = _encode(entry);
+    await _record.send(kind, utf8.encode(body));
   }
 }
 
-/// One journal line for [entry]. Human-readable, per `is_journal`'s own
-/// design ("nothing checks it as it runs, so a person reads it instead"),
-/// and, like the Teams relay's own log line, the reason a run was decided or
-/// what became of it, never a copy of what it carried: no file text, no
-/// program output.
-String _describe<R, P>(Entry<R, P> entry) => switch (entry) {
-  Decided(:final journeyPathId, :final place, :final run, :final decision) =>
-    'decided $journeyPathId@$place ${_reach(run.reach)} -> ${_decision(decision)}',
-  Returned(:final journeyPathId, :final place, :final run, :final outcome) =>
-    'returned $journeyPathId@$place ${_reach(run.reach)} -> ${_outcome(outcome)}',
+/// The writer-service kind, and one journal line of body, for [entry].
+/// Human-readable, per `is_journal`'s own design ("nothing checks it as it
+/// runs, so a person reads it instead"), and, like the Teams relay's own
+/// log line, the reason a run was decided or what became of it, never a
+/// copy of what it carried: no file text, no program output.
+(String, String) _encode<R, P>(Entry<R, P> entry) => switch (entry) {
+  Decided(:final journeyPathId, :final place, :final run, :final decision) => (
+    'decided',
+    '$journeyPathId@$place ${_reach(run.reach)} -> ${_decision(decision)}',
+  ),
+  Returned(:final journeyPathId, :final place, :final run, :final outcome) => (
+    'returned',
+    '$journeyPathId@$place ${_reach(run.reach)} -> ${_outcome(outcome)}',
+  ),
   Narrowed(
     :final journeyPathId,
     :final place,
@@ -102,7 +110,10 @@ String _describe<R, P>(Entry<R, P> entry) => switch (entry) {
     :final rules,
     :final granted,
   ) =>
-    'narrowed $journeyPathId@$place -> $child rules=$rules granted=$granted',
+    (
+      'narrowed',
+      '$journeyPathId@$place -> $child rules=$rules granted=$granted',
+    ),
 };
 
 String _reach(Reach reach) => switch (reach) {

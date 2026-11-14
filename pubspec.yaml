@@ -1,7 +1,8 @@
 name: is_airlock
 description: >-
   An Airlock that decides and records runs under is_airlock_api, witnessing
-  every arrival into an add-only journal before anything reads it.
+  every arrival before anything reads it, by sending each to is_journal's
+  one writer service.
 version: 0.1.0
 repository: https://github.com/intersyntactic/airlock
 
@@ -11,7 +12,11 @@ environment:
 dependencies:
   is_airlock_api: ^0.2.0
   is_effects: ^0.1.0
-  is_journal: ^0.4.0
+  # 0.5.0 (the writer service) is not on pub.dev yet.
+  is_journal:
+    git:
+      url: https://github.com/intersyntactic/journal.git
+      ref: 810096b4c7a922a7d55de5cc491c41329155deb1
   checked_json: ^0.2.1
 
 dev_dependencies:

@@ -1,18 +1,17 @@
 /// Serves [Witness.witness] over a local socket, so a process that cannot
-/// hold a [Journal] of its own (because it is `dart compile exe`'d, and
-/// `is_journal` cannot run compiled) can still have its arrivals witnessed.
+/// reach `is_journal`'s one writer service directly — the Teams relay, at
+/// least for now — can still have its arrivals witnessed.
 ///
 /// One request, one response, one connection: a client sends a line of
 /// JSON — `{"source": ..., "bytes": ...}` — and gets back a line of JSON,
-/// `{"id": ...}` once the entry's `add` has returned, or `{"error": ...}`
+/// `{"id": ...}` once the writer has answered `ok`, or `{"error": ...}`
 /// on any failure. Never a success on a failure: a client that cannot
 /// tell the two apart could go on as though something had been recorded
 /// when nothing was.
 ///
-/// An [ObjectNotKept] failure is answered with `{"error": ..., "entry":
-/// ...}`, naming the entry that went in while its object did not: that
-/// entry is already recorded, so a client must not retry the same
-/// request on seeing it — doing so would record the arrival twice.
+/// A [RecordFailed] is answered with `{"error": ..., "retry": false}`:
+/// the entry may be in while its object is not, so a client must not
+/// retry the same request — doing so could record the arrival twice.
 library;
 
 import 'dart:async';
@@ -20,9 +19,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checked_json/checked_json.dart';
-import 'package:is_journal/is_journal.dart';
 
 import 'arrival_source.dart';
+import 'record_client.dart';
 import 'recorded_airlock.dart';
 
 final class WitnessService {
@@ -32,10 +31,7 @@ final class WitnessService {
 
   /// Serves connections from [server] until [stop] completes, then stops
   /// accepting new ones and waits for every connection already being
-  /// handled to finish, before returning. Closing the journal is the
-  /// caller's: this never does, so a connection still being handled when
-  /// [stop] completes is never asked to record into one that has already
-  /// given up its claim.
+  /// handled to finish, before returning.
   Future<void> serve(ServerSocket server, {required Future<void> stop}) async {
     final handling = <Future<void>>{};
     final subscription = server.listen((socket) {
@@ -67,9 +63,10 @@ final class WitnessService {
         return;
       }
       final bytes = base64Decode(request.string('bytes'));
-      _respond(socket, id: _witness.witness(bytes, source: source));
-    } on ObjectNotKept catch (e) {
-      _respond(socket, error: '$e', entry: e.id);
+      final hash = await _witness.witness(bytes, source: source);
+      _respond(socket, id: hash.hex);
+    } on RecordFailed catch (e) {
+      _respond(socket, error: '$e', retry: false);
     } on Exception catch (e) {
       _respond(socket, error: '$e');
     } finally {
@@ -77,10 +74,10 @@ final class WitnessService {
     }
   }
 
-  void _respond(Socket socket, {ObjectId? id, String? error, ObjectId? entry}) {
+  void _respond(Socket socket, {String? id, String? error, bool? retry}) {
     socket.add(
       utf8.encode(
-        '${jsonEncode(id != null ? {'id': id.hex} : {'error': error, if (entry != null) 'entry': entry.hex})}\n',
+        '${jsonEncode(id != null ? {'id': id} : {'error': error, if (retry != null) 'retry': retry})}\n',
       ),
     );
   }

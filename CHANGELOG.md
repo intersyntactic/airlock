@@ -93,3 +93,25 @@
   sends anything. Kept out of `is_airlock`'s own history is fine —
   `git log` before 14 Nov 2026 has the design if it's needed again,
   wherever it actually ends up living.
+- `is_airlock` no longer holds a journal of its own at all (Nick's
+  ruling, 15 Nov): `is_journal` 0.5.0's one writer service is the
+  record's one writer, for every sender, and `is_airlock` is one of its
+  senders. `Witness`/`RecordedAirlock` take a `RecordClient` (new),
+  which sends `<kind>\n-\n<body>` over a Unix socket (the writer's own
+  wire protocol) and returns an `EntryHash`, or throws `RecordRefused`
+  (nothing added, safe to retry once fixed) or `RecordFailed` (the
+  entry's in, its object may not be — don't retry). `follows` is always
+  `-`: every entry this package sends starts its own chain; only the
+  agent loop appends to a journey path's own.
+- `bin/airlock_service.dart` is a pure sender now: no `Journal.open`,
+  no compiled-build code hash — that's the writer service's build
+  concern entirely. Takes `AIRLOCK_RECORD_SOCKET` (the writer's socket)
+  alongside the existing `AIRLOCK_SOCKET_PATH`/`AIRLOCK_SOCKET_MODE`.
+- Tests spin up a real `dart run is_journal:service` subprocess
+  (`test/journal_service_harness.dart`) rather than reimplementing or
+  mocking the writer's protocol — matching this org's preference for
+  testing against the real thing throughout. Verified the whole chain
+  by hand too: a real writer service, a real `bin/airlock_service.dart`,
+  a real relay-shaped request, the entry landing in the journal with
+  the right wire header and body, both processes exiting clean on
+  `SIGTERM`.

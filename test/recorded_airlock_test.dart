@@ -6,6 +6,8 @@ import 'package:is_airlock/is_airlock.dart';
 import 'package:is_journal/is_journal.dart';
 import 'package:test/test.dart';
 
+import 'journal_service_harness.dart';
+
 /// A [Run] good enough to be recorded; what it carries is never read back.
 Run<Object?> _run() =>
     Program.read.run<Outcome<ReadResult>>(RelativePath.root, then: Done.new);
@@ -14,45 +16,49 @@ Run<Object?> _run() =>
 Run<Object?> _send(Origin origin, {SignIn? signIn}) => Program.web
     .run<Outcome<Sent>>(Request(origin, signIn: signIn), then: Done.new);
 
-/// The bytes of every entry [dir] holds, in order, read straight from the
-/// journal's own `entries` file and `objects/` (documented in is_journal's
+/// The bytes of every entry the harness's journal holds, in order, read
+/// straight from `entries` and `objects/` (documented in is_journal's
 /// README) rather than through any id this test would otherwise have to
-/// track by hand.
-List<Uint8List> _entries(Directory dir) {
-  final bytes = File('${dir.path}/entries').readAsBytesSync();
+/// track by hand. Includes the service's own `started` entry (always
+/// first) and each entry's wire header (`<kind>\n<follows>\n`) ahead of
+/// its body.
+List<Uint8List> _entries(Directory journalDir) {
+  final bytes = File('${journalDir.path}/entries').readAsBytesSync();
   return [
     for (var i = 0; i + 96 <= bytes.length; i += 96)
-      _object(dir, Uint8List.sublistView(bytes, i + 64, i + 96)),
+      _object(journalDir, Uint8List.sublistView(bytes, i + 64, i + 96)),
   ];
 }
 
-Uint8List _object(Directory dir, Uint8List digest) {
+Uint8List _object(Directory journalDir, Uint8List digest) {
   final id = ObjectId.fromDigest(digest)!;
   final file = File(
-    '${dir.path}/objects/${id.hex.substring(0, 2)}/${id.hex.substring(2)}',
+    '${journalDir.path}/objects/${id.hex.substring(0, 2)}/${id.hex.substring(2)}',
   );
   return file.readAsBytesSync();
 }
 
 void main() {
-  late Directory dir;
-  late Journal journal;
+  late JournalServiceHarness harness;
 
-  setUp(() {
-    dir = Directory.systemTemp.createTempSync('is_airlock_test_');
-    journal = Journal.open(dir)!;
+  setUp(() async {
+    harness = await JournalServiceHarness.start([
+      'witnessed',
+      'decided',
+      'returned',
+      'narrowed',
+    ]);
   });
 
-  tearDown(() {
-    journal.close();
-    dir.deleteSync(recursive: true);
+  tearDown(() async {
+    await harness.stop();
   });
 
   RecordedAirlock<String, int> airlock({
     Decision Function(Run<Object?> run, String rules)? decide,
     bool Function(String fewer, String rules)? narrows,
   }) => RecordedAirlock<String, int>(
-    journal,
+    RecordClient(harness.socketPath),
     decide: decide ?? (run, rules) => const Allow(by: DecidedBy.rules),
     narrows: narrows ?? (fewer, rules) => fewer == rules,
   );
@@ -79,30 +85,33 @@ void main() {
     expect(narrowed, isTrue);
   });
 
-  test(
-    'record keeps one journal entry per Entry, naming no file text',
-    () async {
-      final a = airlock();
-      final id = JourneyPathId.parse('conv-1')!;
-      final run = _run();
+  test('record sends one entry per Entry, naming no file text', () async {
+    final a = airlock();
+    final id = JourneyPathId.parse('conv-1')!;
+    final run = _run();
 
-      await a.record(Decided(id, 1, run, const Allow(by: DecidedBy.rules)));
-      await a.record(Returned(id, 1, run, const Ran(ReadMissing())));
-      await a.record(
-        Narrowed<String, int>(
-          id,
-          1,
-          JourneyPathId.parse('conv-1/narrowed')!,
-          'fewer',
-          granted: true,
-        ),
-      );
+    await a.record(Decided(id, 1, run, const Allow(by: DecidedBy.rules)));
+    await a.record(Returned(id, 1, run, const Ran(ReadMissing())));
+    await a.record(
+      Narrowed<String, int>(
+        id,
+        1,
+        JourneyPathId.parse('conv-1/narrowed')!,
+        'fewer',
+        granted: true,
+      ),
+    );
 
-      final check = journal.check();
-      expect(check, isA<Intact>());
-      expect((check as Intact).count, 3);
-    },
-  );
+    final journal = Journal.open(harness.journalDir)!;
+    try {
+      final result = journal.check();
+      expect(result, isA<Intact>());
+      // The service's own `started` entry, plus the three above.
+      expect((result as Intact).count, 4);
+    } finally {
+      journal.close();
+    }
+  });
 
   test(
     'a Decided entry for a Sends reach names the origin and sign-in',
@@ -128,43 +137,63 @@ void main() {
         ),
       );
 
-      final lines = _entries(dir).map(utf8.decode).toList();
+      final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       expect(lines, contains(contains('sends $origin as hart-bot')));
       expect(lines, contains(contains('sends $origin as no sign-in')));
+      // Each is its own chain, per Nick's ruling: a decision never
+      // continues another entry's chain.
+      expect(lines, everyElement(contains('\n-\n')));
     },
   );
 
   test(
     'witness keeps the exact bytes it was given, with no parsing of its own',
-    () {
+    () async {
       final a = airlock();
       final bytes = Uint8List.fromList(utf8.encode('{"text":"hi"}'));
 
-      final id = a.witness(
+      final hash = await a.witness(
         bytes,
         source: ArrivalSource.parse('teams')!,
         at: DateTime.utc(2026, 11, 14),
       );
 
-      final stored = journal.get(id)!;
-      final decoded = jsonDecode(utf8.decode(stored)) as Map<String, Object?>;
-      final witnessed = decoded['witnessed'] as Map<String, Object?>;
-      expect(witnessed['source'], 'teams');
-      expect(witnessed['at'], '2026-11-14T00:00:00.000Z');
-      expect(base64Decode(witnessed['bytes'] as String), bytes);
+      final journal = Journal.open(harness.journalDir)!;
+      final Uint8List stored;
+      try {
+        final found = _entries(harness.journalDir)
+            .firstWhere((e) => utf8.decode(e).startsWith('witnessed\n-\n'));
+        stored = found;
+      } finally {
+        journal.close();
+      }
+      expect(hash.hex.length, 64);
+      final body = utf8.decode(stored).split('\n').skip(2).join('\n');
+      final decoded = jsonDecode(body) as Map<String, Object?>;
+      expect(decoded['source'], 'teams');
+      expect(decoded['at'], '2026-11-14T00:00:00.000Z');
+      expect(base64Decode(decoded['bytes'] as String), bytes);
     },
   );
 
-  test('two arrivals are two entries, even with identical bytes', () {
-    final a = airlock();
-    final bytes = Uint8List.fromList(utf8.encode('same'));
+  test(
+    'two arrivals are two different entries, even with identical bytes',
+    () async {
+      final a = airlock();
+      final bytes = Uint8List.fromList(utf8.encode('same'));
 
-    a.witness(bytes, source: ArrivalSource.parse('teams')!);
-    a.witness(bytes, source: ArrivalSource.parse('teams')!);
+      final first = await a.witness(
+        bytes,
+        source: ArrivalSource.parse('teams')!,
+      );
+      final second = await a.witness(
+        bytes,
+        source: ArrivalSource.parse('teams')!,
+      );
 
-    final check = journal.check() as Intact;
-    expect(check.count, 2);
-  });
+      expect(first, isNot(second));
+    },
+  );
 
   test('ArrivalSource refuses blank text and whitespace', () {
     expect(ArrivalSource.parse(''), isNull);
@@ -172,16 +201,17 @@ void main() {
     expect(ArrivalSource.parse('teams').toString(), 'teams');
   });
 
-  test('witness on a closed journal throws, so nothing is recorded', () {
+  test('witnessing a kind the writer has not granted this user is refused, nothing recorded', () async {
+    await harness.stop();
+    harness = await JournalServiceHarness.start(['decided']); // no `witnessed`
     final a = airlock();
-    journal.close();
 
-    expect(
-      () => a.witness(
+    await expectLater(
+      a.witness(
         Uint8List.fromList(utf8.encode('{}')),
         source: ArrivalSource.parse('teams')!,
       ),
-      throwsStateError,
+      throwsA(isA<RecordRefused>()),
     );
   });
 }
