@@ -11,7 +11,7 @@ import 'package:is_airlock/is_airlock.dart';
 import 'package:is_journal/is_journal.dart';
 
 final journal = Journal.open(Directory('journal'))!;
-final airlock = JournalAirlock<MyRules>(
+final airlock = RecordedAirlock<MyRules>(
   journal,
   decide: (run, rules) => rules.allows(run.reach)
       ? const Allow(by: DecidedBy.rules)
@@ -24,7 +24,7 @@ final airlock = JournalAirlock<MyRules>(
 
 `Airlock<R>.decide` and `.narrows` need to know what `R`, the journey path's
 rules, actually allow — and `R` is whatever the app defines. Rather than
-guess at a shape for it, `JournalAirlock` takes `decide` and `narrows` as
+guess at a shape for it, `RecordedAirlock` takes `decide` and `narrows` as
 functions. What this package owns is the record: durable, add-only, one
 writer at a time, chained and checked, because that part needs no app-specific
 knowledge to get right.
@@ -33,7 +33,7 @@ knowledge to get right.
 
 "Nothing reaches the world unseen" applies on the way in, too. Before
 anything reads an arrival — parses it, decides what it means, acts on it —
-`JournalAirlock.witness` records it, exactly as it came:
+`RecordedAirlock.witness` records it, exactly as it came:
 
 ```dart
 airlock.witness(requestBodyBytes, source: ArrivalSource.parse('teams')!);

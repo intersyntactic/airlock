@@ -26,10 +26,10 @@ void main() {
     dir.deleteSync(recursive: true);
   });
 
-  JournalAirlock<String> airlock({
+  RecordedAirlock<String> airlock({
     Decision Function(Run<Object?> run, String rules)? decide,
     bool Function(String fewer, String rules)? narrows,
-  }) => JournalAirlock<String>(
+  }) => RecordedAirlock<String>(
     journal,
     decide: decide ?? (run, rules) => const Allow(by: DecidedBy.rules),
     narrows: narrows ?? (fewer, rules) => fewer == rules,

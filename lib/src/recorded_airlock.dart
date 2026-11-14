@@ -16,8 +16,8 @@ import 'arrival_source.dart';
 /// are given as functions rather than a shape this package would have to
 /// guess at. What this package owns is durability — the journal, one writer,
 /// chained and checked — not policy.
-final class JournalAirlock<R> implements Airlock<R> {
-  JournalAirlock(
+final class RecordedAirlock<R> implements Airlock<R> {
+  RecordedAirlock(
     this._journal, {
     required this._decide,
     required this._narrows,
