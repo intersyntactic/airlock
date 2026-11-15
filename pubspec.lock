@@ -180,11 +180,10 @@ packages:
   is_journal:
     dependency: "direct main"
     description:
-      path: "."
-      ref: "810096b4c7a922a7d55de5cc491c41329155deb1"
-      resolved-ref: "810096b4c7a922a7d55de5cc491c41329155deb1"
-      url: "https://github.com/intersyntactic/journal.git"
-    source: git
+      name: is_journal
+      sha256: e662f4ceff4bbfced819526588c3d629559bc3e52afeea51fe7b691181b6c443
+      url: "https://pub.dev"
+    source: hosted
     version: "0.5.0"
   lints:
     dependency: "direct dev"

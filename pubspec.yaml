@@ -12,11 +12,7 @@ environment:
 dependencies:
   is_airlock_api: ^0.2.0
   is_effects: ^0.1.0
-  # 0.5.0 (the writer service) is not on pub.dev yet.
-  is_journal:
-    git:
-      url: https://github.com/intersyntactic/journal.git
-      ref: 810096b4c7a922a7d55de5cc491c41329155deb1
+  is_journal: ^0.5.0
   checked_json: ^0.2.1
 
 dev_dependencies:
