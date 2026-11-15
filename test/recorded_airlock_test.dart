@@ -155,14 +155,9 @@ void main() {
       final run = _send(origin, signIn: SignIn.parse('hart-bot'));
 
       await a.record(
-        Returned(
-          id,
-          1,
-          run,
-          const Ran<Sent>(Sent(status: 201, created: 'abc-123')),
-        ),
+        Returned(id, 1, run, const Ran(Sent(status: 201, created: 'abc-123'))),
       );
-      await a.record(Returned(id, 2, run, const Ran<Sent>(Sent(status: 201))));
+      await a.record(Returned(id, 2, run, const Ran(Sent(status: 201))));
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       expect(lines, contains(contains('-> ran created=abc-123')));

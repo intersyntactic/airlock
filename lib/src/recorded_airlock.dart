@@ -135,7 +135,7 @@ String _decision(Decision decision) => switch (decision) {
 /// Typed through to [_returnedTail] rather than formatted here, so where a
 /// created id lands in the line is the encoder's decision, made once.
 (String, String?) _outcome(Outcome<Object?> outcome) => switch (outcome) {
-  Ran<Sent>(:final output) => ('ran', output.created),
+  Ran(output: Sent(:final created)) => ('ran', created),
   Ran() => ('ran', null),
   Refused(:final why) => ('refused: $why', null),
 };
