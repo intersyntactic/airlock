@@ -67,12 +67,12 @@ final class RecordClient {
     return switch (words) {
       ['ok', final hex] =>
         EntryHash.parse(hex) ??
-            (throw StateError(
+            (throw RecordFailed(
               'the writer answered a hash it cannot parse: $hex',
             )),
       ['refused', ...final why] => throw RecordRefused(why.join(' ')),
       ['failed', ...final why] => throw RecordFailed(why.join(' ')),
-      _ => throw StateError('not an answer the writer gives: $line'),
+      _ => throw RecordFailed('not an answer the writer gives: $line'),
     };
   }
 }
