@@ -147,6 +147,28 @@ void main() {
   );
 
   test(
+    'a Returned entry for a Sent outcome carries the created id, when there is one',
+    () async {
+      final a = airlock();
+      final id = JourneyPathId.parse('conv-1')!;
+      final origin = Origin.parse('https://smba.trafficmanager.net')!;
+      final run = _send(origin, signIn: SignIn.parse('hart-bot'));
+
+      await a.record(
+        Returned(id, 1, run, const Ran(Sent(status: 201, created: 'abc-123'))),
+      );
+      await a.record(Returned(id, 2, run, const Ran(Sent(status: 201))));
+
+      final lines = _entries(harness.journalDir).map(utf8.decode).toList();
+      expect(lines, contains(contains('-> ran created=abc-123')));
+      expect(
+        lines,
+        contains(predicate<String>((l) => l.endsWith('-> ran'))),
+      );
+    },
+  );
+
+  test(
     'witness keeps the exact bytes it was given, with no parsing of its own',
     () async {
       final a = airlock();

@@ -131,6 +131,7 @@ String _decision(Decision decision) => switch (decision) {
 };
 
 String _outcome(Outcome<Object?> outcome) => switch (outcome) {
+  Ran(output: Sent(created: final created?)) => 'ran created=$created',
   Ran() => 'ran',
   Refused(:final why) => 'refused: $why',
 };
