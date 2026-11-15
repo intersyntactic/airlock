@@ -8,6 +8,12 @@ import 'package:test/test.dart';
 
 import 'journal_service_harness.dart';
 
+/// A journey path id, as the hash of some entry that started it. [seed]
+/// stands in for that entry's bytes; this test never reads a path id back
+/// to anything, so what it hashes doesn't matter, only that it's stable.
+JourneyPathId _id(String seed) =>
+    JourneyPathId.of(Uint8List.fromList(utf8.encode(seed)));
+
 /// A [Run] good enough to be recorded; what it carries is never read back.
 Run<Object?> _run() =>
     Program.read.run<Outcome<ReadResult>>(RelativePath.root, then: Done.new);
@@ -46,7 +52,6 @@ void main() {
       'witnessed',
       'decided',
       'returned',
-      'narrowed',
     ]);
   });
 
@@ -56,58 +61,39 @@ void main() {
 
   RecordedAirlock<String, int> airlock({
     Decision Function(Run<Object?> run, String rules)? decide,
-    bool Function(String fewer, String rules)? narrows,
   }) => RecordedAirlock<String, int>(
     RecordClient(harness.socketPath),
     decide: decide ?? (run, rules) => const Allow(by: DecidedBy.rules),
-    narrows: narrows ?? (fewer, rules) => fewer == rules,
   );
 
-  test('decide and narrows delegate to the rules given to it', () async {
+  test('decide delegates to the rules given to it', () async {
     var decided = false;
-    var narrowed = false;
     final a = airlock(
       decide: (run, rules) {
         decided = true;
         return const Deny('no', by: DecidedBy.person);
-      },
-      narrows: (fewer, rules) {
-        narrowed = true;
-        return false;
       },
     );
 
     final decision = await a.decide(_run(), 'rules');
     expect(decision, isA<Deny>());
     expect(decided, isTrue);
-
-    expect(a.narrows('fewer', 'rules'), isFalse);
-    expect(narrowed, isTrue);
   });
 
   test('record sends one entry per Entry, naming no file text', () async {
     final a = airlock();
-    final id = JourneyPathId.parse('conv-1')!;
+    final id = _id('conv-1');
     final run = _run();
 
     await a.record(Decided(id, 1, run, const Allow(by: DecidedBy.rules)));
     await a.record(Returned(id, 1, run, const Ran(ReadMissing())));
-    await a.record(
-      Narrowed<String, int>(
-        id,
-        1,
-        JourneyPathId.parse('conv-1/narrowed')!,
-        'fewer',
-        granted: true,
-      ),
-    );
 
     final journal = Journal.open(harness.journalDir)!;
     try {
       final result = journal.check();
       expect(result, isA<Intact>());
-      // The service's own `started` entry, plus the three above.
-      expect((result as Intact).count, 4);
+      // The service's own `started` entry, plus the two above.
+      expect((result as Intact).count, 3);
     } finally {
       journal.close();
     }
@@ -117,7 +103,7 @@ void main() {
     'a Decided entry for a Sends reach names the origin and sign-in',
     () async {
       final a = airlock();
-      final id = JourneyPathId.parse('conv-1')!;
+      final id = _id('conv-1');
       final origin = Origin.parse('https://smba.trafficmanager.net')!;
 
       await a.record(
@@ -150,7 +136,7 @@ void main() {
     'a Returned entry for a Sent outcome carries the created id, when there is one',
     () async {
       final a = airlock();
-      final id = JourneyPathId.parse('conv-1')!;
+      final id = _id('conv-1');
       final origin = Origin.parse('https://smba.trafficmanager.net')!;
       final run = _send(origin, signIn: SignIn.parse('hart-bot'));
 
