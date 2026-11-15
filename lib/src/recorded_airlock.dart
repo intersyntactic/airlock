@@ -60,30 +60,22 @@ class Witness {
 /// one writer, over the same [RecordClient] [Witness] sends arrivals to.
 ///
 /// What a run may do under `R` is the app's rules, not this package's: a
-/// journey path's `R` is whatever its host defines, so [decide] and [narrows]
-/// are given as functions rather than a shape this package would have to
-/// guess at. `P`, the host's place-in-a-turn type, is never read here
-/// either: it is logged by whatever it prints as, same as everything else
-/// an entry carries.
+/// journey path's `R` is whatever its host defines, so [decide] is given
+/// as a function rather than a shape this package would have to guess at.
+/// `P`, the host's place-in-a-turn type, is never read here either: it is
+/// logged by whatever it prints as, same as everything else an entry
+/// carries.
 final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
-  RecordedAirlock(
-    super._record, {
-    required this._decide,
-    required this._narrows,
-  });
+  RecordedAirlock(super._record, {required this._decide});
 
   final Decision Function(Run<Object?> run, R rules) _decide;
-  final bool Function(R fewer, R rules) _narrows;
 
   @override
   Future<Decision> decide(Run<Object?> run, R rules) async =>
       _decide(run, rules);
 
   @override
-  bool narrows(R fewer, R rules) => _narrows(fewer, rules);
-
-  @override
-  Future<void> record(Entry<R, P> entry) async {
+  Future<void> record(Entry<P> entry) async {
     final (kind, body) = _encode(entry);
     await _record.send(kind, utf8.encode(body));
   }
@@ -94,7 +86,7 @@ final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
 /// runs, so a person reads it instead"), and, like the Teams relay's own
 /// log line, the reason a run was decided or what became of it, never a
 /// copy of what it carried: no file text, no program output.
-(String, String) _encode<R, P>(Entry<R, P> entry) => switch (entry) {
+(String, String) _encode<P>(Entry<P> entry) => switch (entry) {
   Decided(:final journeyPathId, :final place, :final run, :final decision) => (
     'decided',
     '$journeyPathId@$place ${_reach(run.reach)} -> ${_decision(decision)}',
@@ -103,17 +95,6 @@ final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
     'returned',
     '$journeyPathId@$place ${_reach(run.reach)} -> ${_outcome(outcome)}',
   ),
-  Narrowed(
-    :final journeyPathId,
-    :final place,
-    :final child,
-    :final rules,
-    :final granted,
-  ) =>
-    (
-      'narrowed',
-      '$journeyPathId@$place -> $child rules=$rules granted=$granted',
-    ),
 };
 
 String _reach(Reach reach) => switch (reach) {

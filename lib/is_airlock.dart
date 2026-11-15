@@ -2,7 +2,7 @@
 /// sending every entry to `is_journal`'s one writer over a [RecordClient].
 ///
 /// A journey path's decisions and outcomes are its own; what rules allow is
-/// the app's to say, so [RecordedAirlock] takes that policy as two functions
+/// the app's to say, so [RecordedAirlock] takes that policy as a function
 /// rather than guessing at a shape for `R`. What it owns is the record: one
 /// entry per [Entry], and, for what reaches the airlock before any journey
 /// path exists to record it, [Witness.witness].
