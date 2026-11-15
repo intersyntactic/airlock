@@ -101,7 +101,7 @@ final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
   ),
   Returned(:final journeyPathId, :final place, :final run, :final outcome) => (
     'returned',
-    '$journeyPathId@$place ${_reach(run.reach)} -> ${_returnedTail(outcome)}',
+    '$journeyPathId@$place ${_reach(run.reach)} -> ${_outcome(outcome)}',
   ),
   Narrowed(
     :final journeyPathId,
@@ -130,17 +130,8 @@ String _decision(Decision decision) => switch (decision) {
   Deny(:final why, :final by) => 'deny (by ${by.name}): $why',
 };
 
-/// What a run's outcome tells the record: the word for what happened, and
-/// the id the destination made of it, when the run was a [Sent] with one.
-/// Typed through to [_returnedTail] rather than formatted here, so where a
-/// created id lands in the line is the encoder's decision, made once.
-(String, String?) _outcome(Outcome<Object?> outcome) => switch (outcome) {
-  Ran(output: Sent(:final created)) => ('ran', created),
-  Ran() => ('ran', null),
-  Refused(:final why) => ('refused: $why', null),
+String _outcome(Outcome<Object?> outcome) => switch (outcome) {
+  Ran(output: Sent(created: final created?)) => 'ran created=$created',
+  Ran() => 'ran',
+  Refused(:final why) => 'refused: $why',
 };
-
-String _returnedTail(Outcome<Object?> outcome) {
-  final (word, created) = _outcome(outcome);
-  return created == null ? word : '$word created=$created';
-}
