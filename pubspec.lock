@@ -157,10 +157,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_airlock_api
-      sha256: "183b2604b543db24b454ca90d27967726c77b7db54439ebd099afed36d901f86"
+      sha256: "9c4ed33605ab5f155ed97b9aadbe4a7204e07731ba71c5295e217c6d4e07e276"
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.0"
+    version: "0.3.0"
   is_content_id:
     dependency: transitive
     description:
@@ -185,6 +185,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.5.0"
+  is_shapes:
+    dependency: transitive
+    description:
+      name: is_shapes
+      sha256: "232e7c18232341435a10bbd45e980bdde037a8e0675b303515ae37ee9c4aa9b8"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.4.2"
   lints:
     dependency: "direct dev"
     description:
