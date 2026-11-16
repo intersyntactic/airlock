@@ -46,12 +46,25 @@ final class SubscribedEntry {
 /// here, so a real journal-backed subscriber is a one-line swap (see
 /// [JournalEntrySubscriber]) for whatever still needs an [EntrySubscriber]
 /// of its own.
+///
+/// An implementation must verify every entry before yielding it:
+/// journal-client-7e found that `subscribe`'s own frames carry no 96
+/// bytes, so nothing checks them the way `get` checks what it returns. A
+/// caller of [waitForRendered] trusts [SubscribedEntry.body] completely —
+/// a `Rendered`'s body becomes the bytes actually sent — so an
+/// unverified entry here is exactly the kind of gap this whole system
+/// otherwise never leaves open.
 abstract interface class EntrySubscriber {
   Stream<SubscribedEntry> subscribe({required String from});
 }
 
-/// An [EntrySubscriber] over `JournalReader.subscribe`, the one reviewed
-/// client for is_journal's read socket.
+/// An [EntrySubscriber] over `JournalReader.subscribe`, re-verifying every
+/// entry through `JournalReader.get` before yielding it — `subscribe`'s
+/// own frames carry no 96 bytes, so nothing checks them otherwise. An
+/// entry `get` can't confirm (not found, unreadable, or a mismatch) is
+/// dropped rather than yielded unverified: [waitForRendered] keeps
+/// waiting, which is safe, rather than trusting something that might be
+/// fabricated.
 final class JournalEntrySubscriber implements EntrySubscriber {
   JournalEntrySubscriber(this.socketPath);
 
@@ -64,17 +77,19 @@ final class JournalEntrySubscriber implements EntrySubscriber {
       from: journal.EntryHash.parse(from)!,
     );
     await for (final entry in subscribed) {
-      if (entry is journal.Entry) {
-        yield SubscribedEntry(
-          hash: entry.hash.toString(),
-          kind: entry.kind?.name ?? '-',
-          previous: entry.previous?.toString(),
-          body: entry.body,
-        );
-      }
-      // A CaughtUp carries nothing waitForRendered needs: it only cares
+      if (entry is! journal.Entry) continue;
+      // CaughtUp carries nothing waitForRendered needs: it only cares
       // about finding the one entry naming decidedHash as previous, not
       // where the backlog ended.
+      final got = await reader.get(entry.hash);
+      if (got is! journal.GotEntry) continue;
+      final verified = got.entry;
+      yield SubscribedEntry(
+        hash: verified.hash.toString(),
+        kind: verified.kind?.name ?? '-',
+        previous: verified.previous?.toString(),
+        body: verified.body,
+      );
     }
   }
 }

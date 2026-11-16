@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:is_airlock/src/record_client.dart';
 import 'package:is_airlock/src/rendered.dart';
+import 'package:is_airlock_api/is_airlock_api.dart' show ObjectId;
 import 'package:is_effects/is_effects.dart';
 import 'package:is_journal_client/is_journal_client.dart';
 import 'package:test/test.dart';
@@ -62,6 +64,47 @@ void main() {
       final outcome = await outcomeFuture;
       expect(outcome, isA<Ran<String>>());
       expect((outcome as Ran<String>).output, 'hello');
+    },
+  );
+
+  test(
+    'an entry subscribe reports but get cannot verify is dropped, not trusted',
+    () async {
+      final decided = await RecordClient(harness.socketPath).send(
+        'decided',
+        Uint8List.fromList(utf8.encode('a decided entry')),
+      );
+      final body = utf8.encode('a rendered body');
+      await JournalWriter(harness.socketPath).write(
+        Kind.parse('rendered')!,
+        body,
+        previous: EntryHash.parse(decided.hex),
+      );
+
+      // Corrupt the object on disk directly, before ever subscribing, so
+      // `get`'s own hash check fails deterministically — no race with a
+      // live stream, since this happens before `subscribe` is even sent.
+      // The journal's object is the whole recorded request, header
+      // included, not the body alone.
+      final recorded = Uint8List.fromList([
+        ...utf8.encode('rendered\n${decided.hex}\n'),
+        ...body,
+      ]);
+      final objectId = ObjectId.of(recorded);
+      final hex = objectId.toString();
+      File(
+        '${harness.journalDir.path}/objects/${hex.substring(0, 2)}/${hex.substring(2)}',
+      ).writeAsBytesSync(utf8.encode('tampered'));
+
+      final outcome = await waitForRendered(
+        decidedHash: decided.hex,
+        expectedRenderer: 'teams-reply',
+        subscriber: JournalEntrySubscriber(harness.readSocketPath!),
+        timeout: const Duration(milliseconds: 300),
+        parseRendered: (entry) => fail('a dropped entry must never reach this'),
+      );
+
+      expect(outcome, isA<Refused>());
     },
   );
 }
