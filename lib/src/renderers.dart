@@ -1,21 +1,23 @@
-/// This package's half of [Renderers]: reading and verifying every entry a
-/// post draws from, before a renderer draws its words.
+/// `EntryReader`/[JournalEntryReader]: a correct, tested client for
+/// is_journal's `get <entry>` (0.6.0, its wire shape settled with
+/// journal-0f, though not published yet).
 ///
-/// What actually runs a renderer — the executable, with no network and no
-/// secrets, checking what it reports it was built from — is not yet
-/// specified (airlock-api-04, infra-5e and Nick are routing it). So is
-/// finding one by name: where the registry lives, and whether its
-/// `executable` points at a journal object (is_journal 0.7.0) or, for now,
-/// a local file. [RecordedRenderers] takes both as functions, same as
-/// [RecordedAirlock] takes `decide`, so neither gap blocks what's already
-/// settled: reading one recorded entry, which is_journal's `get <entry>`
-/// now has a wire shape for (0.6.0, not built yet, but agreed).
+/// Built for the airlock to hand to a renderer it ran itself — is_airlock
+/// no longer does that (Nick, 16 Nov: the airlock never talks to a
+/// renderer; it decides, sends and records, and `Airlock.rendered` follows
+/// the journal instead). This file is a handover staging area, not part of
+/// is_airlock's own production surface any more: journal-0f is taking the
+/// `get` client into is_journal 0.6.0 itself, teams-module-e2 has a
+/// stand-in copy on their own branch meanwhile. Delete this file once
+/// 0.6.0 is published and nothing here still depends on it.
 library;
 
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
-import 'package:is_effects/is_effects.dart';
 
 /// What reading one recorded entry found.
 sealed class EntryRead {
@@ -49,49 +51,91 @@ abstract interface class EntryReader {
   Future<EntryRead> read(EntryId id);
 }
 
-/// A [Renderers] built from the pieces available today: a real,
-/// tested [EntryReader] for the part is_journal's wire shape now settles,
-/// and `find`/`run` as functions for the parts that aren't yet.
-final class RecordedRenderers implements Renderers {
-  RecordedRenderers(this._reader, this._find, this._run);
+/// An [EntryReader] over is_journal's read socket (`get <entry>`, 0.6.0 —
+/// its wire shape is settled, confirmed with journal-0f, though the
+/// version itself isn't published yet).
+///
+/// `get`'s answer carries the entry's own 96-byte record (previous│code│
+/// object, hex) and, when found, the content it names. This class does
+/// both checks journal-0f's protocol asks of a caller before trusting
+/// either: the record hashes to the id it was asked for, and the record's
+/// own `object` field names what the content actually hashes to. Neither
+/// is optional — skipping either lets a compromised or buggy journal hand
+/// back content for the wrong entry, or an entry that was never really
+/// kept.
+///
+/// `none`/`unreadable` become [EntryNotRecorded]/[EntryUnreadable] — about
+/// this one entry, worth a specific refusal reason. `failed`, a malformed
+/// request, or the socket closing early are this reader's own bugs or the
+/// journal being unreachable, not something about one entry, so they throw
+/// a [StateError] instead.
+final class JournalEntryReader implements EntryReader {
+  JournalEntryReader(this.socketPath);
 
-  final EntryReader _reader;
-  final Future<Renderer?> Function(RendererName name) _find;
-  final Future<Outcome<String>> Function(
-    Renderer renderer,
-    List<Uint8List> entries,
-  )
-  _run;
+  final String socketPath;
 
+  /// Journal-0f: the service closes the connection once it has sent its
+  /// one answer, so there is never a second request to confuse this read
+  /// with another's — reading to EOF and parsing locally needs no state
+  /// carried from one call to the next.
   @override
-  Future<Renderer?> find(RendererName name) => _find(name);
-
-  /// Reads each of [entries] and checks it hashes to its own id — the one
-  /// check this class can make today, since `EntryId.of` is defined on the
-  /// entry's bytes regardless of where they came from. A missing or
-  /// unreadable entry refuses the post, naming which; so does one whose
-  /// bytes don't hash to the id it was asked for, which a correct
-  /// [EntryReader] should never hand back, but this class doesn't trust
-  /// that blindly.
-  @override
-  Future<Outcome<String>> render(
-    Renderer renderer,
-    List<EntryId> entries,
-  ) async {
-    final bodies = <Uint8List>[];
-    for (final id in entries) {
-      switch (await _reader.read(id)) {
-        case EntryFound(:final bytes):
-          if (EntryId.of(bytes) != id) {
-            return Refused('entry $id does not hash to its own id');
-          }
-          bodies.add(bytes);
-        case EntryNotRecorded():
-          return Refused('entry $id was never recorded');
-        case EntryUnreadable(:final why):
-          return Refused('entry $id is unreadable: $why');
+  Future<EntryRead> read(EntryId id) async {
+    final socket = await Socket.connect(
+      InternetAddress(socketPath, type: InternetAddressType.unix),
+      0,
+    );
+    final Uint8List all;
+    try {
+      socket.add(utf8.encode('get $id\n'));
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in socket) {
+        bytes.add(chunk);
       }
+      all = bytes.takeBytes();
+    } finally {
+      socket.destroy();
     }
-    return _run(renderer, bodies);
+
+    final newline = all.indexOf(0x0a);
+    if (newline < 0) {
+      throw StateError('get $id: journal closed before answering');
+    }
+    final line = utf8.decode(Uint8List.sublistView(all, 0, newline));
+    final body = Uint8List.sublistView(all, newline + 1);
+    final words = line.split(' ');
+    return switch (words) {
+      ['entry', final hash, _, _, final lengthText, final entryHex]
+          when hash == id.toString() =>
+        _found(id, int.parse(lengthText), entryHex, body),
+      ['none', _] => const EntryNotRecorded(),
+      ['unreadable', _, final why] => EntryUnreadable(why),
+      ['failed', ...final message] =>
+        throw StateError('get $id failed: ${message.join(' ')}'),
+      ['refused', ...final why] =>
+        throw StateError('get $id refused: ${why.join(' ')}'),
+      _ => throw StateError('get $id: not an answer the journal gives'),
+    };
+  }
+
+  EntryRead _found(EntryId id, int length, String entryHex, Uint8List body) {
+    final record = _unhex(entryHex);
+    if (record.length != 96 || EntryId.of(record) != id) {
+      return EntryUnreadable('its own record does not hash to $id');
+    }
+    if (body.length != length) {
+      throw StateError(
+        'get $id: journal closed before sending all $length bytes',
+      );
+    }
+    final object = ObjectId.fromDigest(Uint8List.sublistView(record, 64, 96));
+    if (object == null || ObjectId.of(body) != object) {
+      return EntryUnreadable('its content does not match its own record');
+    }
+    return EntryFound(body);
   }
 }
+
+Uint8List _unhex(String hex) => Uint8List.fromList([
+  for (var i = 0; i + 1 < hex.length; i += 2)
+    int.parse(hex.substring(i, i + 2), radix: 16),
+]);
