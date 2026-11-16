@@ -12,7 +12,7 @@ environment:
 dependencies:
   is_airlock_api: ^0.4.0
   is_effects: ^0.2.0
-  is_journal: ^0.5.0
+  is_journal: ^0.6.0
   checked_json: ^0.2.1
 
 dev_dependencies:

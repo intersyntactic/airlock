@@ -11,6 +11,7 @@ import 'dart:io';
 final class JournalServiceHarness {
   JournalServiceHarness._(
     this.socketPath,
+    this.readSocketPath,
     this.journalDir,
     this._process,
     this._dir,
@@ -18,6 +19,10 @@ final class JournalServiceHarness {
 
   /// The socket a [RecordClient] connects to.
   final String socketPath;
+
+  /// The socket `get`/`tip`/`follow` connect to, null unless [start] was
+  /// asked for one.
+  final String? readSocketPath;
 
   /// Where the service keeps its journal — for tests reading its raw
   /// `entries`/`objects` directly, the way `is_journal`'s own tests do.
@@ -27,13 +32,18 @@ final class JournalServiceHarness {
   final Directory _dir;
 
   /// Starts the service, granting this process's own user [kinds] to
-  /// send. Waits for its "listening on" line before returning.
-  static Future<JournalServiceHarness> start(List<String> kinds) async {
+  /// send, and a read socket too when [withReadSocket]. Waits for its
+  /// "listening on" line before returning.
+  static Future<JournalServiceHarness> start(
+    List<String> kinds, {
+    bool withReadSocket = false,
+  }) async {
     final dir = Directory.systemTemp.createTempSync('journal_service_test_');
     final me = Process.runSync('id', ['-un']).stdout.toString().trim();
     final sendersFile = File('${dir.path}/senders')
       ..writeAsStringSync('$me ${kinds.join(' ')}\n');
     final socketPath = '${dir.path}/journal.sock';
+    final readSocketPath = withReadSocket ? '${dir.path}/journal-read.sock' : null;
 
     final journalDir = Directory('${dir.path}/journal');
     final process = await Process.start(
@@ -43,6 +53,7 @@ final class JournalServiceHarness {
         'JOURNAL_DIR': journalDir.path,
         'JOURNAL_SOCKET': socketPath,
         'JOURNAL_SENDERS': sendersFile.path,
+        if (readSocketPath != null) 'JOURNAL_READ_SOCKET': readSocketPath,
       },
     );
 
@@ -63,7 +74,13 @@ final class JournalServiceHarness {
     });
     await Future.any([ready.future, exited]);
 
-    return JournalServiceHarness._(socketPath, journalDir, process, dir);
+    return JournalServiceHarness._(
+      socketPath,
+      readSocketPath,
+      journalDir,
+      process,
+      dir,
+    );
   }
 
   Future<void> stop() async {

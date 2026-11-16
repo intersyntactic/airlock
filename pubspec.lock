@@ -181,10 +181,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_journal
-      sha256: e662f4ceff4bbfced819526588c3d629559bc3e52afeea51fe7b691181b6c443
+      sha256: "1b09acd9673d2fefab4978f6617de9f5a292f68ab60981844e92e43f8f5b3c76"
       url: "https://pub.dev"
     source: hosted
-    version: "0.5.0"
+    version: "0.6.0"
   is_shapes:
     dependency: transitive
     description:
