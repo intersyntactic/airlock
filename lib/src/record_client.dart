@@ -3,7 +3,7 @@
 /// connection: the request bytes out, the write side closed, one line of
 /// answer back.
 ///
-/// Every entry this package sends starts its own chain (`follows` is
+/// Every entry this package sends starts its own chain (`previous` is
 /// always `-`, never a hash): witnessing an arrival and recording a
 /// decision are each their own, standalone fact. Only the agent loop
 /// appends to a journey path's own chain.
