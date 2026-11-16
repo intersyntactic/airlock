@@ -5,53 +5,53 @@ import 'package:is_airlock/src/rendered.dart';
 import 'package:is_effects/is_effects.dart';
 import 'package:test/test.dart';
 
-/// A controllable [EntryFollower]: the test decides exactly what arrives
+/// A controllable [EntrySubscriber]: the test decides exactly what arrives
 /// and when, including never.
-final class _FakeFollower implements EntryFollower {
-  final _controller = StreamController<FollowedEntry>();
+final class _FakeSubscriber implements EntrySubscriber {
+  final _controller = StreamController<SubscribedEntry>();
 
-  void add(FollowedEntry entry) => _controller.add(entry);
+  void add(SubscribedEntry entry) => _controller.add(entry);
 
   @override
-  Stream<FollowedEntry> follow({required String after}) =>
+  Stream<SubscribedEntry> subscribe({required String from}) =>
       _controller.stream;
 }
 
-FollowedEntry _rendered(
+SubscribedEntry _rendered(
   String hash, {
-  required String follows,
+  required String previous,
   Uint8List? body,
-}) => FollowedEntry(
+}) => SubscribedEntry(
   hash: hash,
   kind: 'rendered',
-  follows: follows,
+  previous: previous,
   body: body ?? Uint8List(0),
 );
 
 void main() {
   test('a Rendered from the expected renderer becomes Ran', () async {
-    final follower = _FakeFollower();
+    final subscriber = _FakeSubscriber();
     final outcomeFuture = waitForRendered(
       decidedHash: 'decided-1',
       expectedRenderer: 'teams-reply',
-      follower: follower,
+      subscriber: subscriber,
       timeout: const Duration(seconds: 1),
       parseRendered: (entry) =>
           const RenderedAnswer(renderedBy: 'teams-reply', body: 'hello'),
     );
 
-    follower.add(_rendered('r1', follows: 'decided-1'));
+    subscriber.add(_rendered('r1', previous: 'decided-1'));
 
     expect(await outcomeFuture, isA<Ran<String>>());
     expect((await outcomeFuture as Ran<String>).output, 'hello');
   });
 
   test('a Rendered reporting its own refusal becomes Refused', () async {
-    final follower = _FakeFollower();
+    final subscriber = _FakeSubscriber();
     final outcomeFuture = waitForRendered(
       decidedHash: 'decided-1',
       expectedRenderer: 'teams-reply',
-      follower: follower,
+      subscriber: subscriber,
       timeout: const Duration(seconds: 1),
       parseRendered: (entry) => const RenderedAnswer(
         renderedBy: 'teams-reply',
@@ -59,7 +59,7 @@ void main() {
       ),
     );
 
-    follower.add(_rendered('r1', follows: 'decided-1'));
+    subscriber.add(_rendered('r1', previous: 'decided-1'));
 
     final outcome = await outcomeFuture;
     expect(outcome, isA<Refused>());
@@ -69,17 +69,17 @@ void main() {
   test(
     'an entry from the wrong renderer refuses, naming both renderers',
     () async {
-      final follower = _FakeFollower();
+      final subscriber = _FakeSubscriber();
       final outcomeFuture = waitForRendered(
         decidedHash: 'decided-1',
         expectedRenderer: 'teams-reply',
-        follower: follower,
+        subscriber: subscriber,
         timeout: const Duration(seconds: 1),
         parseRendered: (entry) =>
             const RenderedAnswer(renderedBy: 'some-other-renderer'),
       );
 
-      follower.add(_rendered('r1', follows: 'decided-1'));
+      subscriber.add(_rendered('r1', previous: 'decided-1'));
 
       final outcome = await outcomeFuture;
       expect(outcome, isA<Refused>());
@@ -91,20 +91,20 @@ void main() {
   test(
     'an entry of some other kind in that slot refuses, naming its kind',
     () async {
-      final follower = _FakeFollower();
+      final subscriber = _FakeSubscriber();
       final outcomeFuture = waitForRendered(
         decidedHash: 'decided-1',
         expectedRenderer: 'teams-reply',
-        follower: follower,
+        subscriber: subscriber,
         timeout: const Duration(seconds: 1),
         parseRendered: (entry) => null,
       );
 
-      follower.add(
-        FollowedEntry(
+      subscriber.add(
+        SubscribedEntry(
           hash: 'x1',
           kind: 'arrived',
-          follows: 'decided-1',
+          previous: 'decided-1',
           body: Uint8List(0),
         ),
       );
@@ -116,20 +116,20 @@ void main() {
   );
 
   test(
-    'entries following a different chain are ignored, not treated as the answer',
+    'entries naming a different previous are ignored, not treated as the answer',
     () async {
-      final follower = _FakeFollower();
+      final subscriber = _FakeSubscriber();
       final outcomeFuture = waitForRendered(
         decidedHash: 'decided-1',
         expectedRenderer: 'teams-reply',
-        follower: follower,
+        subscriber: subscriber,
         timeout: const Duration(seconds: 1),
         parseRendered: (entry) =>
             const RenderedAnswer(renderedBy: 'teams-reply', body: 'right'),
       );
 
-      follower.add(_rendered('other', follows: 'decided-2'));
-      follower.add(_rendered('r1', follows: 'decided-1'));
+      subscriber.add(_rendered('other', previous: 'decided-2'));
+      subscriber.add(_rendered('r1', previous: 'decided-1'));
 
       final outcome = await outcomeFuture;
       expect(outcome, isA<Ran<String>>());
@@ -137,13 +137,13 @@ void main() {
     },
   );
 
-  test('nothing following within the timeout refuses', () async {
-    final follower = _FakeFollower();
+  test('nothing naming it as previous within the timeout refuses', () async {
+    final subscriber = _FakeSubscriber();
 
     final outcome = await waitForRendered(
       decidedHash: 'decided-1',
       expectedRenderer: 'teams-reply',
-      follower: follower,
+      subscriber: subscriber,
       timeout: const Duration(milliseconds: 50),
       parseRendered: (entry) => null,
     );

@@ -1,14 +1,18 @@
 /// What `Airlock.rendered(decided)` needs (is_airlock_api 0.5.0, part 1,
 /// https://github.com/intersyntactic/airlock_api/pull/10, not merged yet):
-/// given a kept `Decided` entry, wait for the one entry that follows it —
-/// a `Rendered` from the expected renderer, anything else, or a timeout —
-/// and turn that into the `Outcome<String>` the driver is sent with.
+/// given a kept `Decided` entry, wait for the one entry that names it as
+/// `previous` — a `Rendered` from the expected renderer, anything else, or
+/// a timeout — and turn that into the `Outcome<String>` the driver is sent
+/// with.
 ///
-/// Built against is_journal's `follow` protocol, which is already settled
-/// and live on 0.5.0 (confirmed with journal-0f: the per-post chain design
-/// needs no journal change). What isn't settled — the wire shape of a
-/// `Rendered` entry, and how deeply the airlock checks where it came from
-/// — is passed in as [parseRendered], so this file doesn't guess at either.
+/// Built against is_journal's `subscribe` request (Nick retired "follow":
+/// a reader subscribes, the record publishes), confirmed by journal-0f as
+/// a wire rename only — `subscribe <kinds> from <entry>|start` in place of
+/// `follow <kinds> <after>`, same behaviour, same reply bytes, `previous`
+/// in place of `follows` as the name for what an entry points at. What
+/// isn't settled — the wire shape of a `Rendered` entry, and how deeply
+/// the airlock checks where it came from — is passed in as [parseRendered],
+/// so this file doesn't guess at either.
 library;
 
 import 'dart:async';
@@ -16,38 +20,40 @@ import 'dart:typed_data';
 
 import 'package:is_effects/is_effects.dart';
 
-/// One entry as `follow` hands it back: enough to find the one that
-/// follows a given hash, without this file needing to know any kind's own
-/// wire format.
-final class FollowedEntry {
-  const FollowedEntry({
+/// One entry as `subscribe` hands it back: enough to find the one that
+/// names a given entry as [previous], without this file needing to know
+/// any kind's own wire format.
+final class SubscribedEntry {
+  const SubscribedEntry({
     required this.hash,
     required this.kind,
-    required this.follows,
+    required this.previous,
     required this.body,
   });
 
   final String hash;
   final String kind;
 
-  /// The hash of the entry this one follows; null for a chain's own start.
-  final String? follows;
+  /// The hash of the entry this one names as what it comes after; null for
+  /// an entry that starts its own chain.
+  final String? previous;
   final Uint8List body;
 }
 
-/// Entries recorded after [after] (exclusive), of any kind, then live —
-/// is_journal's `follow * <after>`. Passed in rather than built here, same
-/// reason as everywhere else this session: its wire shape is settled, but
-/// there's nothing published yet to connect to for real.
-abstract interface class EntryFollower {
-  Stream<FollowedEntry> follow({required String after});
+/// Entries published after [from] (exclusive), of any kind, then live —
+/// is_journal's `subscribe * from <entry>`. Passed in rather than built
+/// here, same reason as everywhere else this session: its wire shape is
+/// settled, but there's nothing published yet to connect to for real.
+abstract interface class EntrySubscriber {
+  Stream<SubscribedEntry> subscribe({required String from});
 }
 
-/// What [parseRendered] found in one followed entry: a renderer's answer,
-/// or null when the entry isn't a `Rendered` at all (the wrong kind in
-/// that slot — refused, but not forged, per RULINGS' walls: a stranger can
-/// write an entry, but can't make it look like it came from the renderer
-/// the `Decided` named without the writer's own sender check agreeing).
+/// What [parseRendered] found in one subscribed entry: a renderer's
+/// answer, or null when the entry isn't a `Rendered` at all (the wrong
+/// kind in that slot — refused, but not forged, per RULINGS' walls: a
+/// stranger can write an entry, but can't make it look like it came from
+/// the renderer the `Decided` named without the writer's own sender check
+/// agreeing).
 final class RenderedAnswer {
   const RenderedAnswer({required this.renderedBy, this.body, this.refusal});
 
@@ -58,10 +64,10 @@ final class RenderedAnswer {
   final String? refusal;
 }
 
-/// Waits for the entry that follows [decidedHash] — a `Rendered` from
-/// [expectedRenderer], anything else, or nothing within [timeout] — and
-/// answers with the `Outcome` is_airlock_api's own `Airlock.rendered`
-/// needs to give back.
+/// Waits for the entry that names [decidedHash] as its own previous — a
+/// `Rendered` from [expectedRenderer], anything else, or nothing within
+/// [timeout] — and answers with the `Outcome` is_airlock_api's own
+/// `Airlock.rendered` needs to give back.
 ///
 /// A late answer can never turn into anything else `Returned` would read
 /// twice: a timeout here is reported to the caller, and this file does
@@ -71,28 +77,28 @@ final class RenderedAnswer {
 Future<Outcome<String>> waitForRendered({
   required String decidedHash,
   required String expectedRenderer,
-  required EntryFollower follower,
+  required EntrySubscriber subscriber,
   required Duration timeout,
-  required RenderedAnswer? Function(FollowedEntry entry) parseRendered,
+  required RenderedAnswer? Function(SubscribedEntry entry) parseRendered,
 }) async {
-  final entries = follower.follow(after: decidedHash).timeout(timeout);
+  final entries = subscriber.subscribe(from: decidedHash).timeout(timeout);
   Outcome<String> outcome;
   try {
     outcome = Refused(
-      'is_journal stopped following before anything arrived',
+      'is_journal stopped publishing before anything arrived',
     );
     await for (final entry in entries) {
-      if (entry.follows != decidedHash) continue;
+      if (entry.previous != decidedHash) continue;
       final rendered = parseRendered(entry);
       outcome = switch (rendered) {
         null => Refused(
-          'expected a Rendered entry following $decidedHash, '
+          'expected a Rendered entry naming $decidedHash as previous, '
           'got ${entry.kind} from ${entry.hash}',
         ),
         RenderedAnswer(renderedBy: final by) when by != expectedRenderer =>
           Refused(
-            'Rendered following $decidedHash came from $by, not the '
-            'expected $expectedRenderer',
+            'Rendered naming $decidedHash as previous came from $by, not '
+            'the expected $expectedRenderer',
           ),
         RenderedAnswer(body: final body?) => Ran(body),
         RenderedAnswer(:final refusal) => Refused(
@@ -102,7 +108,9 @@ Future<Outcome<String>> waitForRendered({
       break;
     }
   } on TimeoutException {
-    outcome = Refused('no entry followed $decidedHash within $timeout');
+    outcome = Refused(
+      'no entry named $decidedHash as previous within $timeout',
+    );
   }
   return outcome;
 }
