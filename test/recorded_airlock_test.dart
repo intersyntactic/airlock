@@ -14,12 +14,35 @@ import 'journal_service_harness.dart';
 JourneyPathId _id(String seed) =>
     JourneyPathId.of(Uint8List.fromList(utf8.encode(seed)));
 
-/// A [Sends] reach, posting to [origin] under [signIn], with no renderer
-/// resolved — enough to exercise decide/record without a real renderer.
-Sends _sends(Origin origin, {SignIn? signIn}) => Sends(
-  Post(origin, renderer: RendererName.parse('a-renderer')!, signIn: signIn),
-  null,
+/// A stub [Renderer], good enough that a [Sends] reach isn't auto-denied
+/// for naming none — what it actually draws is a different test's concern.
+Renderer _renderer() => Renderer(
+  RendererId.parse('a' * 64)!,
+  executable: ObjectId.parse('b' * 64)!,
 );
+
+/// A [FileDriver] that answers every read the same way, since these tests
+/// only need a real [Returned] entry to exist, not a real file.
+final class _FakeFileDriver implements FileDriver {
+  @override
+  Future<Outcome<ReadResult>> read(RelativePath path) async =>
+      const Ran(ReadMissing());
+
+  @override
+  Future<Outcome<Wrote>> write(FileText file) async =>
+      const Ran(Wrote(replaced: false));
+}
+
+/// A [WebDriver] that hands every [Request] to [onSend] and sends back
+/// whatever it returns.
+final class _FakeWebDriver implements WebDriver {
+  _FakeWebDriver(this.onSend);
+
+  final Outcome<Sent> Function(Request request) onSend;
+
+  @override
+  Future<Outcome<Sent>> send(Request request) async => onSend(request);
+}
 
 /// The bytes of every entry the harness's journal holds, in order, read
 /// straight from `entries` and `objects/` (documented in is_journal's
@@ -56,9 +79,32 @@ void main() {
 
   RecordedAirlock<String, int> airlock({
     Decision Function(Reach reach, String rules)? decide,
+    Future<Renderer?> Function(RendererName name)? renderer,
+    Future<Outcome<String>> Function(Decided<int> decided)? rendered,
   }) => RecordedAirlock<String, int>(
     RecordClient(harness.socketPath),
     decide: decide ?? (reach, rules) => const Allow(by: DecidedBy.rules),
+    renderer: renderer ?? (name) async => _renderer(),
+    rendered: rendered ?? (decided) async => const Ran('rendered body'),
+  );
+
+  /// A journey path on [a], with one [_FakeFileDriver] and one
+  /// [_FakeWebDriver] sending back [onSend], good for driving a real run
+  /// through `_consider` so the library itself produces a real [Returned]
+  /// (whose constructor this package can no longer call directly).
+  JourneyPath<String, int> path(
+    RecordedAirlock<String, int> a, {
+    String rules = 'rules',
+    Outcome<Sent> Function(Request request)? onSend,
+  }) => JourneyPath<String, int>(
+    id: _id('conv-1'),
+    drivers: [
+      _FakeFileDriver(),
+      _FakeWebDriver(onSend ?? (request) => const Refused('no onSend given')),
+    ],
+    airlock: a,
+    rules: rules,
+    suit: Suit.parse('suit-1')!,
   );
 
   test('decide delegates to the rules given to it', () async {
@@ -70,27 +116,25 @@ void main() {
       },
     );
 
-    final decision = await a.decide(
-      Reads(RelativePath.root),
-      'rules',
-    );
+    final decision = await a.decide(Reads(RelativePath.root), 'rules');
     expect(decision, isA<Deny>());
     expect(decided, isTrue);
   });
 
-  test('record sends one entry per Entry, naming no file text', () async {
+  test('a run records one Decided and one Returned entry', () async {
     final a = airlock();
-    final id = _id('conv-1');
-    final reach = Reads(RelativePath.root);
+    final run = Program.read.run<Outcome<ReadResult>>(
+      RelativePath.root,
+      then: Done.new,
+    );
 
-    await a.record(Decided(id, 1, reach, const Allow(by: DecidedBy.rules)));
-    await a.record(Returned(id, 1, reach, const Ran(ReadMissing())));
+    await run.next(path(a).at(1));
 
     final journal = Journal.open(harness.journalDir)!;
     try {
       final result = journal.check();
       expect(result, isA<Intact>());
-      // The service's own `started` entry, plus the two above.
+      // The service's own `started` entry, plus Decided and Returned.
       expect((result as Intact).count, 3);
     } finally {
       journal.close();
@@ -100,26 +144,25 @@ void main() {
   test(
     'a Decided entry for a Sends reach names the origin and sign-in',
     () async {
-      final a = airlock();
-      final id = _id('conv-1');
       final origin = Origin.parse('https://smba.trafficmanager.net')!;
+      final allowed = airlock();
+      final denied = airlock(
+        decide: (reach, rules) => const Deny('no sign-in', by: DecidedBy.rules),
+      );
 
-      await a.record(
-        Decided(
-          id,
-          1,
-          _sends(origin, signIn: SignIn.parse('hart-bot')),
-          const Allow(by: DecidedBy.rules),
+      Run<Object?> send(SignIn? signIn) => Program.web.run<Outcome<Sent>>(
+        Send(
+          origin,
+          renderer: RendererName.parse('a-renderer')!,
+          signIn: signIn,
         ),
+        then: Done.new,
       );
-      await a.record(
-        Decided(
-          id,
-          2,
-          _sends(origin),
-          const Deny('no sign-in', by: DecidedBy.rules),
-        ),
-      );
+
+      await send(
+        SignIn.parse('hart-bot'),
+      ).next(path(allowed, onSend: (r) => const Ran(Sent(status: 201))).at(1));
+      await send(null).next(path(denied).at(2));
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       expect(lines, contains(contains('sends $origin as hart-bot')));
@@ -133,15 +176,27 @@ void main() {
   test(
     'a Returned entry for a Sent outcome carries the created id, when there is one',
     () async {
-      final a = airlock();
-      final id = _id('conv-1');
       final origin = Origin.parse('https://smba.trafficmanager.net')!;
-      final reach = _sends(origin, signIn: SignIn.parse('hart-bot'));
+      final a = airlock();
 
-      await a.record(
-        Returned(id, 1, reach, const Ran(Sent(status: 201, created: 'abc-123'))),
+      Run<Object?> send() => Program.web.run<Outcome<Sent>>(
+        Send(
+          origin,
+          renderer: RendererName.parse('a-renderer')!,
+          signIn: SignIn.parse('hart-bot'),
+        ),
+        then: Done.new,
       );
-      await a.record(Returned(id, 2, reach, const Ran(Sent(status: 201))));
+
+      await send().next(
+        path(
+          a,
+          onSend: (r) => const Ran(Sent(status: 201, created: 'abc-123')),
+        ).at(1),
+      );
+      await send().next(
+        path(a, onSend: (r) => const Ran(Sent(status: 201))).at(2),
+      );
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       expect(lines, contains(contains('-> ran created=abc-123')));

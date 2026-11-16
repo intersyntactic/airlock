@@ -14,14 +14,33 @@ import 'record_client.dart';
 /// `P`, the host's place-in-a-turn type, is never read here either: it is
 /// logged by whatever it prints as, same as everything else an entry
 /// carries.
+///
+/// [renderer] and [rendered] are given as functions too, for the same
+/// reason: resolving a renderer's name, and following the journal for
+/// what it recorded, are both genuinely this package's to build, but not
+/// yet — see lib/src/rendered.dart for [rendered]'s real logic, not yet
+/// wired in here.
 final class RecordedAirlock<R, P> implements Airlock<R, P> {
-  RecordedAirlock(this._record, {required this._decide});
+  RecordedAirlock(
+    this._record, {
+    required this._decide,
+    required this._renderer,
+    required this._rendered,
+  });
 
   final RecordClient _record;
   final Decision Function(Reach reach, R rules) _decide;
+  final Future<Renderer?> Function(RendererName name) _renderer;
+  final Future<Outcome<String>> Function(Decided<P> decided) _rendered;
 
   @override
   Future<Decision> decide(Reach reach, R rules) async => _decide(reach, rules);
+
+  @override
+  Future<Renderer?> renderer(RendererName name) => _renderer(name);
+
+  @override
+  Future<Outcome<String>> rendered(Decided<P> decided) => _rendered(decided);
 
   @override
   Future<void> record(Entry<P> entry) async {
@@ -36,14 +55,30 @@ final class RecordedAirlock<R, P> implements Airlock<R, P> {
 /// log line, the reason a run was decided or what became of it, never a
 /// copy of what it carried: no file text, no program output.
 (String, String) _encode<P>(Entry<P> entry) => switch (entry) {
-  Decided(:final journeyPathId, :final place, :final reach, :final decision) => (
-    'decided',
-    '$journeyPathId@$place ${_reach(reach)} -> ${_decision(decision)}',
-  ),
-  Returned(:final journeyPathId, :final place, :final reach, :final outcome) => (
-    'returned',
-    '$journeyPathId@$place ${_reach(reach)} -> ${_outcome(outcome)}',
-  ),
+  Decided(
+    :final journeyPathId,
+    :final place,
+    :final reach,
+    :final decision,
+    :final proposed,
+  ) =>
+    (
+      'decided',
+      '$journeyPathId@$place ${_reach(reach)} -> ${_decision(decision)}'
+          '${proposed == null ? '' : ' proposed=$proposed'}',
+    ),
+  Returned(
+    :final journeyPathId,
+    :final place,
+    :final reach,
+    :final outcome,
+    :final proposed,
+  ) =>
+    (
+      'returned',
+      '$journeyPathId@$place ${_reach(reach)} -> ${_outcome(outcome)}'
+          '${proposed == null ? '' : ' proposed=$proposed'}',
+    ),
 };
 
 String _reach(Reach reach) => switch (reach) {
@@ -51,10 +86,10 @@ String _reach(Reach reach) => switch (reach) {
   Writes(:final file) => 'writes ${file.path}',
   Starts(:final program, :final args) =>
     'starts $program ${args.args.join(' ')}',
-  Sends(:final post, :final renderer) =>
-    'sends ${post.origin}${post.path} as ${post.signIn ?? 'no sign-in'} '
+  Sends(:final send, :final renderer) =>
+    'sends ${send.origin}${send.path} as ${send.signIn ?? 'no sign-in'} '
     'renderer=${renderer?.id.toString() ?? 'none'} '
-    'draws ${post.entries.join(',')}',
+    'draws ${send.entries.join(',')}',
 };
 
 String _decision(Decision decision) => switch (decision) {
