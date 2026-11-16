@@ -14,13 +14,12 @@ import 'journal_service_harness.dart';
 JourneyPathId _id(String seed) =>
     JourneyPathId.of(Uint8List.fromList(utf8.encode(seed)));
 
-/// A [Run] good enough to be recorded; what it carries is never read back.
-Run<Object?> _run() =>
-    Program.read.run<Outcome<ReadResult>>(RelativePath.root, then: Done.new);
-
-/// A [Run] whose reach is [Sends], as [origin] under [signIn].
-Run<Object?> _send(Origin origin, {SignIn? signIn}) => Program.web
-    .run<Outcome<Sent>>(Request(origin, signIn: signIn), then: Done.new);
+/// A [Sends] reach, posting to [origin] under [signIn], with no renderer
+/// resolved — enough to exercise decide/record without a real renderer.
+Sends _sends(Origin origin, {SignIn? signIn}) => Sends(
+  Post(origin, renderer: RendererName.parse('a-renderer')!, signIn: signIn),
+  null,
+);
 
 /// The bytes of every entry the harness's journal holds, in order, read
 /// straight from `entries` and `objects/` (documented in is_journal's
@@ -48,11 +47,7 @@ void main() {
   late JournalServiceHarness harness;
 
   setUp(() async {
-    harness = await JournalServiceHarness.start([
-      'witnessed',
-      'decided',
-      'returned',
-    ]);
+    harness = await JournalServiceHarness.start(['decided', 'returned']);
   });
 
   tearDown(() async {
@@ -60,22 +55,25 @@ void main() {
   });
 
   RecordedAirlock<String, int> airlock({
-    Decision Function(Run<Object?> run, String rules)? decide,
+    Decision Function(Reach reach, String rules)? decide,
   }) => RecordedAirlock<String, int>(
     RecordClient(harness.socketPath),
-    decide: decide ?? (run, rules) => const Allow(by: DecidedBy.rules),
+    decide: decide ?? (reach, rules) => const Allow(by: DecidedBy.rules),
   );
 
   test('decide delegates to the rules given to it', () async {
     var decided = false;
     final a = airlock(
-      decide: (run, rules) {
+      decide: (reach, rules) {
         decided = true;
         return const Deny('no', by: DecidedBy.person);
       },
     );
 
-    final decision = await a.decide(_run(), 'rules');
+    final decision = await a.decide(
+      Reads(RelativePath.root),
+      'rules',
+    );
     expect(decision, isA<Deny>());
     expect(decided, isTrue);
   });
@@ -83,10 +81,10 @@ void main() {
   test('record sends one entry per Entry, naming no file text', () async {
     final a = airlock();
     final id = _id('conv-1');
-    final run = _run();
+    final reach = Reads(RelativePath.root);
 
-    await a.record(Decided(id, 1, run, const Allow(by: DecidedBy.rules)));
-    await a.record(Returned(id, 1, run, const Ran(ReadMissing())));
+    await a.record(Decided(id, 1, reach, const Allow(by: DecidedBy.rules)));
+    await a.record(Returned(id, 1, reach, const Ran(ReadMissing())));
 
     final journal = Journal.open(harness.journalDir)!;
     try {
@@ -110,7 +108,7 @@ void main() {
         Decided(
           id,
           1,
-          _send(origin, signIn: SignIn.parse('hart-bot')),
+          _sends(origin, signIn: SignIn.parse('hart-bot')),
           const Allow(by: DecidedBy.rules),
         ),
       );
@@ -118,7 +116,7 @@ void main() {
         Decided(
           id,
           2,
-          _send(origin),
+          _sends(origin),
           const Deny('no sign-in', by: DecidedBy.rules),
         ),
       );
@@ -138,12 +136,12 @@ void main() {
       final a = airlock();
       final id = _id('conv-1');
       final origin = Origin.parse('https://smba.trafficmanager.net')!;
-      final run = _send(origin, signIn: SignIn.parse('hart-bot'));
+      final reach = _sends(origin, signIn: SignIn.parse('hart-bot'));
 
       await a.record(
-        Returned(id, 1, run, const Ran(Sent(status: 201, created: 'abc-123'))),
+        Returned(id, 1, reach, const Ran(Sent(status: 201, created: 'abc-123'))),
       );
-      await a.record(Returned(id, 2, run, const Ran(Sent(status: 201))));
+      await a.record(Returned(id, 2, reach, const Ran(Sent(status: 201))));
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       expect(lines, contains(contains('-> ran created=abc-123')));
@@ -153,73 +151,4 @@ void main() {
       );
     },
   );
-
-  test(
-    'witness keeps the exact bytes it was given, with no parsing of its own',
-    () async {
-      final a = airlock();
-      final bytes = Uint8List.fromList(utf8.encode('{"text":"hi"}'));
-
-      final hash = await a.witness(
-        bytes,
-        source: ArrivalSource.parse('teams')!,
-        at: DateTime.utc(2026, 11, 14),
-      );
-
-      final journal = Journal.open(harness.journalDir)!;
-      final Uint8List stored;
-      try {
-        final found = _entries(harness.journalDir)
-            .firstWhere((e) => utf8.decode(e).startsWith('witnessed\n-\n'));
-        stored = found;
-      } finally {
-        journal.close();
-      }
-      expect(hash.hex.length, 64);
-      final body = utf8.decode(stored).split('\n').skip(2).join('\n');
-      final decoded = jsonDecode(body) as Map<String, Object?>;
-      expect(decoded['source'], 'teams');
-      expect(decoded['at'], '2026-11-14T00:00:00.000Z');
-      expect(base64Decode(decoded['bytes'] as String), bytes);
-    },
-  );
-
-  test(
-    'two arrivals are two different entries, even with identical bytes',
-    () async {
-      final a = airlock();
-      final bytes = Uint8List.fromList(utf8.encode('same'));
-
-      final first = await a.witness(
-        bytes,
-        source: ArrivalSource.parse('teams')!,
-      );
-      final second = await a.witness(
-        bytes,
-        source: ArrivalSource.parse('teams')!,
-      );
-
-      expect(first, isNot(second));
-    },
-  );
-
-  test('ArrivalSource refuses blank text and whitespace', () {
-    expect(ArrivalSource.parse(''), isNull);
-    expect(ArrivalSource.parse('teams relay'), isNull);
-    expect(ArrivalSource.parse('teams').toString(), 'teams');
-  });
-
-  test('witnessing a kind the writer has not granted this user is refused, nothing recorded', () async {
-    await harness.stop();
-    harness = await JournalServiceHarness.start(['decided']); // no `witnessed`
-    final a = airlock();
-
-    await expectLater(
-      a.witness(
-        Uint8List.fromList(utf8.encode('{}')),
-        source: ArrivalSource.parse('teams')!,
-      ),
-      throwsA(isA<RecordRefused>()),
-    );
-  });
 }
