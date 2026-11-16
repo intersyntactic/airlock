@@ -1,20 +1,16 @@
-/// A client of `is_journal`'s one writer service: the only place this
-/// package's record actually lives now. Sending an entry is one
-/// connection: the request bytes out, the write side closed, one line of
-/// answer back.
+/// A client of `is_journal`'s one writer service, over [JournalWriter]
+/// from `is_journal_client` — the one reviewed client, not a hand-rolled
+/// copy of its wire protocol.
 ///
 /// Every entry this package sends starts its own chain (`previous` is
-/// always `-`, never a hash): witnessing an arrival and recording a
-/// decision are each their own, standalone fact. Only the agent loop
-/// appends to a journey path's own chain.
+/// always null): witnessing an arrival and recording a decision are each
+/// their own, standalone fact. Only the agent loop appends to a journey
+/// path's own chain.
 library;
 
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:is_journal/is_journal.dart';
+import 'package:is_journal_client/is_journal_client.dart';
 
 /// The writer refused the entry outright: nothing was added, so sending
 /// it again (once whatever [why] names is fixed) is safe.
@@ -27,10 +23,10 @@ final class RecordRefused implements Exception {
   String toString() => 'RecordRefused: $why';
 }
 
-/// The entry went in, but the writer isn't sure its object did — the
-/// service's own shape for what `is_journal`'s `ObjectNotKept` meant
-/// before there was a service in front of it. Sending the same fact
-/// again would record it twice; this is not safe to retry as is.
+/// The entry went in, but the writer isn't sure its object did, or there
+/// was no telling what happened at all (the socket unreachable, closed
+/// early, or silent past the deadline). Sending the same fact again would
+/// risk recording it twice; this is not safe to retry as is.
 final class RecordFailed implements Exception {
   const RecordFailed(this.why);
 
@@ -55,24 +51,19 @@ final class RecordClient {
   /// tell the two apart could go on as though something had been
   /// recorded when nothing was, or send it again when it already had.
   Future<EntryHash> send(String kind, Uint8List body) async {
-    final socket = await Socket.connect(
-      InternetAddress(socketPath, type: InternetAddressType.unix),
-      0,
+    final result = await JournalWriter(socketPath).write(
+      Kind.parse(kind)!,
+      body,
     );
-    socket.add(utf8.encode('$kind\n-\n'));
-    socket.add(body);
-    await socket.close();
-    final line = (await utf8.decoder.bind(socket).join()).trim();
-    final words = line.split(' ');
-    return switch (words) {
-      ['ok', final hex] =>
-        EntryHash.parse(hex) ??
-            (throw RecordFailed(
-              'the writer answered a hash it cannot parse: $hex',
-            )),
-      ['refused', ...final why] => throw RecordRefused(why.join(' ')),
-      ['failed', ...final why] => throw RecordFailed(why.join(' ')),
-      _ => throw RecordFailed('not an answer the writer gives: $line'),
+    return switch (result) {
+      Written(:final entry) => entry,
+      NotTip() => throw RecordFailed(
+        'this package only ever starts its own chain, so the writer '
+        'refusing for not being the tip is its own bug',
+      ),
+      WriteRefused(:final why) => throw RecordRefused(why),
+      WriteFailed(:final why) => throw RecordFailed(why),
+      Unanswered(:final why) => throw RecordFailed(why),
     };
   }
 }

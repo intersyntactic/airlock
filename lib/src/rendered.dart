@@ -19,6 +19,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:is_effects/is_effects.dart';
+import 'package:is_journal_client/is_journal_client.dart' as journal;
 
 /// One entry as `subscribe` hands it back: enough to find the one that
 /// names a given entry as [previous], without this file needing to know
@@ -42,10 +43,40 @@ final class SubscribedEntry {
 
 /// Entries published after [from] (exclusive), of any kind, then live —
 /// is_journal's `subscribe * from <entry>`. Passed in rather than built
-/// here, same reason as everywhere else this session: its wire shape is
-/// settled, but there's nothing published yet to connect to for real.
+/// here, so a real journal-backed subscriber is a one-line swap (see
+/// [JournalEntrySubscriber]) for whatever still needs an [EntrySubscriber]
+/// of its own.
 abstract interface class EntrySubscriber {
   Stream<SubscribedEntry> subscribe({required String from});
+}
+
+/// An [EntrySubscriber] over `JournalReader.subscribe`, the one reviewed
+/// client for is_journal's read socket.
+final class JournalEntrySubscriber implements EntrySubscriber {
+  JournalEntrySubscriber(this.socketPath);
+
+  final String socketPath;
+
+  @override
+  Stream<SubscribedEntry> subscribe({required String from}) async* {
+    final reader = journal.JournalReader(socketPath);
+    final subscribed = reader.subscribe(
+      from: journal.EntryHash.parse(from)!,
+    );
+    await for (final entry in subscribed) {
+      if (entry is journal.Entry) {
+        yield SubscribedEntry(
+          hash: entry.hash.toString(),
+          kind: entry.kind?.name ?? '-',
+          previous: entry.previous?.toString(),
+          body: entry.body,
+        );
+      }
+      // A CaughtUp carries nothing waitForRendered needs: it only cares
+      // about finding the one entry naming decidedHash as previous, not
+      // where the backlog ended.
+    }
+  }
 }
 
 /// What [parseRendered] found in one subscribed entry: a renderer's
