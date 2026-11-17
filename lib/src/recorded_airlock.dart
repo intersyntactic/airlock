@@ -26,12 +26,15 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
     required this._decide,
     required this._renderer,
     required this._rendered,
+    required this._recordedOn,
   });
 
   final RecordClient _record;
   final Decision Function(Reach reach, R rules) _decide;
   final Future<Renderer?> Function(RendererName name) _renderer;
   final Future<Outcome<String>> Function(Decided<P> decided) _rendered;
+  final Future<Outcome<String>> Function(TrajectoryId trajectory, EntryId entry)
+  _recordedOn;
 
   @override
   Future<Decision> decide(Reach reach, R rules) async => _decide(reach, rules);
@@ -41,6 +44,10 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
 
   @override
   Future<Outcome<String>> rendered(Decided<P> decided) => _rendered(decided);
+
+  @override
+  Future<Outcome<String>> recordedOn(TrajectoryId trajectory, EntryId entry) =>
+      _recordedOn(trajectory, entry);
 
   /// Writes [entry] in whichever shape its reader actually needs.
   ///
@@ -116,6 +123,7 @@ String _reach(Reach reach) => switch (reach) {
     'sends ${request.origin}${request.path} as ${request.signIn ?? 'no sign-in'} '
     'renderer=${renderer?.id.toString() ?? 'none'} '
     'draws ${request.entries.join(',')}',
+  CallsTheModel(:final signIn, :final model) => 'asks $model as $signIn',
 };
 
 String _decision(Decision decision) => switch (decision) {

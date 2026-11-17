@@ -91,6 +91,7 @@ void main() {
     decide: decide ?? (reach, rules) => const Allow(by: DecidedBy.rules),
     renderer: renderer ?? (name) async => _renderer(),
     rendered: rendered ?? (decided) async => const Ran('rendered body'),
+    recordedOn: (trajectory, entry) async => const Refused('n/a'),
   );
 
   /// A trajectory on [a], with one [_FakeFileDriver] and one

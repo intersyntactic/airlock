@@ -11,6 +11,7 @@
 ///   AIRLOCK_RECORD_SOCKET       the writer service's Unix socket
 ///   AIRLOCK_RECORD_READ_SOCKET  the writer service's read/subscribe socket
 ///   AIRLOCK_WEB_DRIVER_SOCKET   the web driver's Unix socket
+///   AIRLOCK_MODEL_DRIVER_SOCKET the model driver's Unix socket
 ///   AIRLOCK_PROPOSALS_ENABLED   `1` or `true` once infra-5e has confirmed
 ///                               the record enforces that a trajectory's
 ///                               chain takes entries only from its own loop
@@ -22,6 +23,8 @@ library;
 import 'dart:io';
 
 import 'package:is_airlock/is_airlock.dart';
+import 'package:is_claude_code_driver/service.dart'
+    show ClaudeCodeDriverSocket;
 import 'package:is_journal_client/is_journal_client.dart' show JournalReader;
 import 'package:is_web_driver/service.dart' show WebDriverSocket;
 
@@ -29,15 +32,22 @@ Future<void> main() async {
   final recordSocket = Platform.environment['AIRLOCK_RECORD_SOCKET'];
   final readSocket = Platform.environment['AIRLOCK_RECORD_READ_SOCKET'];
   final webDriverSocket = Platform.environment['AIRLOCK_WEB_DRIVER_SOCKET'];
-  if (recordSocket == null || readSocket == null || webDriverSocket == null) {
+  final modelDriverSocket =
+      Platform.environment['AIRLOCK_MODEL_DRIVER_SOCKET'];
+  if (recordSocket == null ||
+      readSocket == null ||
+      webDriverSocket == null ||
+      modelDriverSocket == null) {
     stderr.writeln(
       'airlock service: set AIRLOCK_RECORD_SOCKET, '
-      'AIRLOCK_RECORD_READ_SOCKET and AIRLOCK_WEB_DRIVER_SOCKET',
+      'AIRLOCK_RECORD_READ_SOCKET, AIRLOCK_WEB_DRIVER_SOCKET and '
+      'AIRLOCK_MODEL_DRIVER_SOCKET',
     );
     exitCode = 64;
     return;
   }
 
+  final recordIndex = RecordIndex();
   final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
     RecordClient(recordSocket),
     decide: _decide,
@@ -46,6 +56,7 @@ Future<void> main() async {
     renderer: (name) async => null,
     rendered: (decided) async =>
         const Refused('renderer not wired yet (task 27)'),
+    recordedOn: recordIndex.recordedOn,
   );
 
   final proposalsEnabled = switch (
@@ -61,15 +72,19 @@ Future<void> main() async {
   await runAirlockService(
     subscribe: () => JournalReader(readSocket).subscribe(),
     airlock: airlock,
-    drivers: [WebDriverSocket(File(webDriverSocket))],
+    drivers: [
+      WebDriverSocket(File(webDriverSocket)),
+      ClaudeCodeDriverSocket(File(modelDriverSocket)),
+    ],
     proposalsEnabled: proposalsEnabled,
+    recordIndex: recordIndex,
     say: stderr.writeln,
   );
 }
 
 /// Files, writes and programs carry nothing off this machine by
 /// themselves, so none needs a rule here (`WhatMayLeaveThisMachine`'s own
-/// doc comment); only a web request does.
+/// doc comment); only a web request or a model call does.
 Decision _decide(Reach reach, WhatMayLeaveThisMachine rules) => switch (reach) {
   Reads() || Writes() || Starts() => const Allow(by: DecidedBy.rules),
   MakesWebRequest(:final request) => rules.allowsWebRequest(
@@ -82,4 +97,7 @@ Decision _decide(Reach reach, WhatMayLeaveThisMachine rules) => switch (reach) {
           '${request.signIn ?? 'no sign-in'}',
           by: DecidedBy.rules,
         ),
+  CallsTheModel(:final signIn) => rules.allowsModelCall(signIn)
+      ? const Allow(by: DecidedBy.rules)
+      : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
 };

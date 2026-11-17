@@ -35,6 +35,8 @@ import 'package:is_journal/service.dart' show Kind;
 import 'package:is_journal_client/is_journal_client.dart'
     show CaughtUp, Entry, EntryHash, Subscribed;
 
+import 'record_index.dart';
+
 final _admittedKind = Kind.parse('event-admitted-to-mission')!;
 final _assignedKind = Kind.parse('users-assigned-to-trajectory')!;
 final _proposedKind = Kind.parse('proposed')!;
@@ -140,11 +142,11 @@ Future<void> runAirlockService({
   required DecidesAndRecordsActions<WhatMayLeaveThisMachine, Place> airlock,
   required Iterable<CarriesOutActions> drivers,
   required bool proposalsEnabled,
+  required RecordIndex recordIndex,
   required void Function(String line) say,
 }) async {
   final rulesOf = <TrajectoryId, WhatMayLeaveThisMachine>{};
   final suitOf = <TrajectoryId, Suit>{};
-  final trajectoryOf = <EntryHash, TrajectoryId>{};
   final trajectories =
       <TrajectoryId, Trajectory<WhatMayLeaveThisMachine, Place>>{};
   final answered = <EntryId>{};
@@ -200,6 +202,17 @@ Future<void> runAirlockService({
   }
 
   await for (final item in subscribe()) {
+    // Indexed by content before any kind-specific handling, so every
+    // entry — not just the kinds this service has a case for — carries its
+    // chain's trajectory forward and is findable by EntryId for recordedOn.
+    if (item case Entry(
+      :final hash,
+      :final previous,
+      recorded: final recorded,
+      :final body,
+    )) {
+      recordIndex.add(hash, previous: previous, recorded: recorded, body: body);
+    }
     switch (item) {
       case CaughtUp():
         caughtUp = true;
@@ -241,7 +254,7 @@ Future<void> runAirlockService({
           );
         }
         suitOf[assigned.trajectory] = assigned.suit;
-        trajectoryOf[hash] = assigned.trajectory;
+        recordIndex.root(hash, assigned.trajectory);
         build(assigned.trajectory);
 
       case Entry(:final kind, :final body) when kind == _returnedKind:
@@ -255,18 +268,9 @@ Future<void> runAirlockService({
           // only ones that are tell us a proposal is already answered.
         }
 
-      case Entry(
-        :final kind,
-        :final hash,
-        :final previous,
-        recorded: final recorded,
-        :final body,
-      )
+      case Entry(:final kind, :final hash, recorded: final recorded, :final body)
           when kind == _proposedKind:
-        final onTrajectory = switch (previous) {
-          final previous? => trajectoryOf[previous],
-          null => null,
-        };
+        final onTrajectory = recordIndex.trajectoryOf(hash);
         if (onTrajectory == null) {
           // Not on any live trajectory's chain: either stale, or the
           // journal hasn't yet been made to enforce that a trajectory's
@@ -275,7 +279,6 @@ Future<void> runAirlockService({
           // under an unchecked claim of whose it is.
           break;
         }
-        trajectoryOf[hash] = onTrajectory;
         // task 20's hard gate: without proposalsEnabled, chain ownership is
         // unconfirmed, so a loop user writing onto another trajectory's
         // chain would be acted on as that trajectory's own. Ignored

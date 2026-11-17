@@ -42,13 +42,14 @@ final _rulesJson = {
   'programsNetwork': 'noNetworkOfTheirOwn',
 };
 
-/// Writes docking_station's admitted entry, loop_launcher's assigned entry
-/// and an agent loop's proposed read, in that order, through [writer] —
-/// exactly the three records [runAirlockService] needs to decide something.
-/// Returns the proposed entry's own [EntryId] (`Trajectory.consider`'s and
-/// [ReturnedProposal.proposed]'s space — `EntryId.of` its object bytes,
-/// header included, never the `EntryHash` `write()` returns).
-Future<EntryId> _propose(JournalWriter writer) async {
+/// Writes docking_station's admitted entry and loop_launcher's assigned
+/// entry through [writer], under [rules] (`_rulesJson`'s shape, by default
+/// granting nothing). Returns the trajectory's id and the assigned entry's
+/// hash — the chain's tip so far, for whatever is written on it next.
+Future<(TrajectoryId, EntryHash)> _admitAndAssign(
+  JournalWriter writer, {
+  Map<String, Object?>? rules,
+}) async {
   const admittedKind = 'event-admitted-to-mission';
   final admittedBody = Uint8List.fromList(
     utf8.encode(
@@ -58,7 +59,7 @@ Future<EntryId> _propose(JournalWriter writer) async {
         'reading': {'case': 'something-else'},
         'startsMission': true,
         'startsTrajectory': true,
-        'rules': _rulesJson,
+        'rules': rules ?? _rulesJson,
       }),
     ),
   );
@@ -84,6 +85,17 @@ Future<EntryId> _propose(JournalWriter writer) async {
       ),
     ),
   );
+  return (trajectoryId, assignedHash);
+}
+
+/// Writes an admitted+assigned trajectory, then an agent loop's proposed
+/// read on its chain, through [writer] — exactly the three records
+/// [runAirlockService] needs to decide something. Returns the proposed
+/// entry's own [EntryId] (`Trajectory.consider`'s and
+/// [ReturnedProposal.proposed]'s space — `EntryId.of` its object bytes,
+/// header included, never the `EntryHash` `write()` returns).
+Future<EntryId> _propose(JournalWriter writer) async {
+  final (_, assignedHash) = await _admitAndAssign(writer);
 
   final proposedBody = Uint8List.fromList(
     utf8.encode(jsonEncode({'program': 'read', 'place': 1, 'input': ''})),
@@ -145,11 +157,13 @@ void main() {
     () async {
       final proposedId = await _propose(JournalWriter(harness.socketPath));
 
+      final recordIndex = RecordIndex();
       final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
         RecordClient(harness.socketPath),
         decide: (reach, rules) => const Allow(by: DecidedBy.rules),
         renderer: (name) async => null,
         rendered: (decided) async => const Refused('n/a'),
+        recordedOn: recordIndex.recordedOn,
       );
 
       unawaited(
@@ -158,6 +172,7 @@ void main() {
           airlock: airlock,
           drivers: const [],
           proposalsEnabled: true,
+          recordIndex: recordIndex,
           say: (_) {},
         ),
       );
@@ -180,11 +195,13 @@ void main() {
     () async {
       final proposedId = await _propose(JournalWriter(harness.socketPath));
 
+      final recordIndex = RecordIndex();
       final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
         RecordClient(harness.socketPath),
         decide: (reach, rules) => const Allow(by: DecidedBy.rules),
         renderer: (name) async => null,
         rendered: (decided) async => const Refused('n/a'),
+        recordedOn: recordIndex.recordedOn,
       );
 
       unawaited(
@@ -193,6 +210,7 @@ void main() {
           airlock: airlock,
           drivers: const [],
           proposalsEnabled: false,
+          recordIndex: recordIndex,
           say: (_) {},
         ),
       );

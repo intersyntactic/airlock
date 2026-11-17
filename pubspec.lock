@@ -157,10 +157,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_airlock_api
-      sha256: "372f94352ba6327a26974c61354fb3f289d5d8a763dab1384260a27e9da95b19"
+      sha256: "46d3b24481562fb350bf8e9fb08bdd3201c4abb0cd1a4ce921e8601092f4d122"
       url: "https://pub.dev"
     source: hosted
-    version: "0.7.1"
+    version: "0.8.0"
   is_annotation_shapes:
     dependency: transitive
     description:
@@ -169,6 +169,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.3.1"
+  is_claude_code_driver:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: c8c9ae1
+      resolved-ref: c8c9ae10f0beb86b04311b0bb8ce36dc74f7353d
+      url: "https://github.com/intersyntactic/claude_code_driver.git"
+    source: git
+    version: "0.1.0"
   is_content_id:
     dependency: transitive
     description:
