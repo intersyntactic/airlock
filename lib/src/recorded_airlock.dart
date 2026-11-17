@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_effects/is_effects.dart';
-import 'package:is_journal_client/is_journal_client.dart' show EntryHash;
 
 import 'record_client.dart';
 
@@ -42,7 +41,7 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   /// [recordResult] can extend its chain without a second write naming it
   /// by anything other than being the same object [Trajectory._consider]
   /// passes to both calls in turn.
-  final _decisionHash = <AirlockDecisionOnAction<P>, EntryHash>{};
+  final _decisionHash = <AirlockDecisionOnAction<P>, ObjectId>{};
 
   @override
   Future<Decision> decide(Reach reach, R rules) async => _decide(reach, rules);

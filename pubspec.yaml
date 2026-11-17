@@ -1,7 +1,7 @@
 name: is_airlock
 description: >-
   An Airlock that decides and records runs under is_airlock_api, witnessing
-  every arrival before anything reads it, by sending each to is_journal's
+  every arrival before anything reads it, by sending each to is_logbook's
   one writer service.
 version: 0.1.0
 repository: https://github.com/intersyntactic/airlock
@@ -10,17 +10,12 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
-  is_airlock_api:
-    git:
-      url: https://github.com/intersyntactic/airlock_api.git
-      ref: c42a36a
-      # 0.9.0 is published (airlock-api-04, 01:19) but pub.dev's CDN is
-      # still propagating it; switch to ^0.9.0 once that resolves.
+  is_airlock_api: ^0.9.0
   is_effects: ^0.7.0
   is_flight_rules: ^0.1.0
-  is_journal: ^0.7.0
+  is_logbook: ^0.2.0
   checked_json: ^0.2.1
-  is_journal_client: ^0.1.0
+  is_logbook_client: ^0.2.0
   is_web_driver:
     git:
       url: https://github.com/intersyntactic/web_driver.git
@@ -28,7 +23,11 @@ dependencies:
   is_docking_station:
     git:
       url: https://github.com/intersyntactic/docking_station.git
-      ref: 6b08790c02fd005f418196873c9206df68d3fb43
+      ref: 8b7a886582b0149d4cf79b1c5d782a0fb8a6a685
+      # PR #23 (https://github.com/intersyntactic/docking_station/pull/23),
+      # not merged yet: the is_logbook 0.2.0 move, confirmed stable by
+      # docking-station-cc (same code the live docking station runs).
+      # Repin to main's sha once Nick merges it.
   is_claude_code_driver:
     git:
       url: https://github.com/intersyntactic/claude_code_driver.git
@@ -40,7 +39,7 @@ dev_dependencies:
   lints: ^6.1.0
   test: ^1.25.0
 
-# The whole dependency chain (is_effects, is_airlock_api, is_journal) is
+# The whole dependency chain (is_effects, is_airlock_api, is_logbook) is
 # hosted now, so this package could publish. publish_to: none until Nick
 # says go — nothing here has asked for that yet.
 publish_to: none

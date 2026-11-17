@@ -25,7 +25,7 @@ import 'dart:io';
 import 'package:is_airlock/is_airlock.dart';
 import 'package:is_claude_code_driver/service.dart'
     show ClaudeCodeDriverSocket;
-import 'package:is_journal_client/is_journal_client.dart' show JournalReader;
+import 'package:is_logbook_client/is_logbook_client.dart' show LogbookReader;
 import 'package:is_web_driver/service.dart' show WebDriverSocket;
 
 Future<void> main() async {
@@ -66,7 +66,7 @@ Future<void> main() async {
     '(proposals ${proposalsEnabled ? 'enabled' : 'disabled'})',
   );
   await runAirlockService(
-    subscribe: () => JournalReader(readSocket).subscribe(),
+    subscribe: () => LogbookReader(readSocket).subscribe(),
     airlock: airlock,
     drivers: [
       WebDriverSocket(File(webDriverSocket)),

@@ -1,15 +1,19 @@
-/// Indexes the record's entries by content, so [DecidesAndRecordsActions
-/// .recordedOn] can answer without a `get` — the record service's `get`
-/// looks up only by `EntryHash`, the journal's own metadata-record hash,
-/// never by `EntryId`, `is_shapes`' hash of an entry's own object bytes
-/// (confirmed against logbook's `_read`/`_get`, airlock-api-04, 18 Nov:
-/// there is no lookup by `EntryId` on the service side). Every entry this
-/// package reads off the subscription already carries its own object
-/// bytes, so the index is built as entries go by instead.
+/// Indexes the record's entries by id, so [DecidesAndRecordsActions
+/// .recordedOn] can answer without a `get`.
+///
+/// Under is_logbook 0.2.0 an entry's id is the [ObjectId] of its bytes —
+/// the same sha256 [EntryId.of] computes over an entry's object text —
+/// so chain-walking (by [Entry.previous]) and content lookup are now the
+/// same id space: one entry, one id, found by [EntryId.hex] alongside
+/// whatever is on it. (Under is_journal 0.7.0 these were two different
+/// hashes over different bytes — a landmine this package once hit —
+/// which is_logbook's rename of its wire ids to content hashes retires.)
+/// Every entry this package reads off the subscription already carries
+/// its own bytes, so the index is built as entries go by instead of a
+/// second round trip to the service.
 library;
 
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:is_airlock_api/is_airlock_api.dart'
     show
@@ -18,80 +22,61 @@ import 'package:is_airlock_api/is_airlock_api.dart'
         readResultOfActionOrWhyRefused,
         resultOfActionOrWhyRefusedKind;
 import 'package:is_effects/is_effects.dart' show Outcome, Ran, Refused;
-import 'package:is_journal_client/is_journal_client.dart' show EntryHash;
+import 'package:is_logbook_client/is_logbook_client.dart' show ObjectId;
 
 final class _Indexed {
-  const _Indexed({
-    required this.hash,
-    required this.trajectory,
-    required this.kind,
-    required this.body,
-  });
+  const _Indexed({required this.trajectory, required this.kind, required this.body});
 
-  final EntryHash hash;
   final TrajectoryId? trajectory;
   final String kind;
   final String body;
 }
 
-/// Which trajectory's chain each logbook entry is on, and what each one's
-/// own content hashes to — [EntryId.of] its object bytes, header included,
-/// never its [EntryHash].
+/// Which trajectory's chain each logbook entry is on, and each one's kind
+/// and content, by id.
 final class RecordIndex {
-  final _trajectoryOf = <EntryHash, TrajectoryId>{};
+  final _byId = <String, _Indexed>{};
 
-  /// Every entry by [EntryId.hex]: more than one, if two roots (`previous`
-  /// `-`) happen to share a body — two entries with the same content on
-  /// different chains have the same [EntryId] but different [EntryHash]es.
-  final _byContent = <String, List<_Indexed>>{};
-
-  /// [hash] roots [trajectory]'s chain: a `users-assigned-to-trajectory`
+  /// [id] roots [trajectory]'s chain: a `users-assigned-to-trajectory`
   /// entry. Call after [add]ing it, so a root is never mistaken for
   /// continuing some earlier chain by sharing a previous that happens to be
   /// null.
-  void root(EntryHash hash, TrajectoryId trajectory) {
-    _trajectoryOf[hash] = trajectory;
+  void root(ObjectId id, TrajectoryId trajectory) {
+    final entry = _byId[id.hex];
+    if (entry != null) {
+      _byId[id.hex] = _Indexed(
+        trajectory: trajectory,
+        kind: entry.kind,
+        body: entry.body,
+      );
+    }
   }
 
-  /// This trajectory's chain is on, if [hash] is on one at all.
-  TrajectoryId? trajectoryOf(EntryHash hash) => _trajectoryOf[hash];
+  /// This trajectory's chain is on, if [id] is on one at all.
+  TrajectoryId? trajectoryOf(ObjectId id) => _byId[id.hex]?.trajectory;
 
-  /// Indexes [hash] (this entry's own hash), with [recorded] (its object
-  /// bytes, header included), [kind] and [body] (the same, header stripped,
-  /// what [recordedOn] actually gives back). [hash]'s trajectory is
-  /// [previous]'s, if [previous] is on one — the same chain-walk [root]
-  /// seeds.
+  /// Indexes [id] (this entry's own id), with [previous]'s trajectory, if
+  /// it is on one — the same chain-walk [root] seeds — [kind] and [body]
+  /// (the entry's bytes after its header, what [recordedOn] gives back).
   void add(
-    EntryHash hash, {
-    required EntryHash? previous,
-    required Uint8List recorded,
-    required Uint8List body,
+    ObjectId id, {
+    required ObjectId? previous,
     required String kind,
+    required String body,
   }) {
-    final trajectory = previous == null ? null : _trajectoryOf[previous];
-    if (trajectory != null) _trajectoryOf[hash] = trajectory;
-    _byContent
-        .putIfAbsent(EntryId.of(recorded).hex, () => [])
-        .add(
-          _Indexed(
-            hash: hash,
-            trajectory: trajectory,
-            kind: kind,
-            body: utf8.decode(body),
-          ),
-        );
+    final trajectory = previous == null ? null : _byId[previous.hex]?.trajectory;
+    _byId[id.hex] = _Indexed(trajectory: trajectory, kind: kind, body: body);
   }
 
-  /// Whether [candidate] belongs to [trajectory] because it is a
+  /// Whether [indexed] belongs to [trajectory] because it is a
   /// [resultOfActionOrWhyRefusedKind] entry the airlock kept for one of
   /// its proposals: its own body names a `proposed` entry that is on
   /// [trajectory]'s chain.
-  bool _resultBelongsTo(_Indexed candidate, TrajectoryId trajectory) {
-    if (candidate.kind != resultOfActionOrWhyRefusedKind) return false;
-    final read = readResultOfActionOrWhyRefused(_jsonOrNull(candidate.body));
+  bool _resultBelongsTo(_Indexed indexed, TrajectoryId trajectory) {
+    if (indexed.kind != resultOfActionOrWhyRefusedKind) return false;
+    final read = readResultOfActionOrWhyRefused(_jsonOrNull(indexed.body));
     if (read == null) return false;
-    final proposed = _byContent[read.proposed.hex] ?? const [];
-    return proposed.any((c) => c.trajectory == trajectory);
+    return _byId[read.proposed.hex]?.trajectory == trajectory;
   }
 
   /// [entry]'s kind and content, when it belongs to [trajectory]: on its
@@ -103,16 +88,12 @@ final class RecordIndex {
     TrajectoryId trajectory,
     EntryId entry,
   ) async {
-    final candidates = _byContent[entry.hex] ?? const [];
-    for (final candidate in candidates) {
-      if (candidate.trajectory == trajectory ||
-          _resultBelongsTo(candidate, trajectory)) {
-        return Ran((kind: candidate.kind, body: candidate.body));
-      }
+    final indexed = _byId[entry.hex];
+    if (indexed == null) return Refused('${entry.hex} is not recorded');
+    if (indexed.trajectory == trajectory || _resultBelongsTo(indexed, trajectory)) {
+      return Ran((kind: indexed.kind, body: indexed.body));
     }
-    return candidates.isEmpty
-        ? Refused('${entry.hex} is not recorded')
-        : Refused('${entry.hex} is on another chain');
+    return Refused('${entry.hex} is on another chain');
   }
 }
 

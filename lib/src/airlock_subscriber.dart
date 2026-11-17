@@ -22,7 +22,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checked_json/checked_json.dart';
-import 'package:is_airlock_api/is_airlock_api.dart' hide Entry;
+import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_docking_station/src/path_start.dart'
     show
         EntryStartsTrajectory,
@@ -31,9 +31,9 @@ import 'package:is_docking_station/src/path_start.dart'
         readTrajectoryStart;
 import 'package:is_effects/is_effects.dart';
 import 'package:is_flight_rules/is_flight_rules.dart';
-import 'package:is_journal/service.dart' show Kind;
-import 'package:is_journal_client/is_journal_client.dart'
-    show CaughtUp, Entry, EntryHash, Subscribed;
+import 'package:is_logbook/service.dart' show Kind;
+import 'package:is_logbook_client/is_logbook_client.dart'
+    show CaughtUp, Entry, ObjectId, Subscribed;
 
 import 'record_index.dart';
 
@@ -42,17 +42,16 @@ final _assignedKind = Kind.parse('users-assigned-to-trajectory')!;
 final _proposedKind = Kind.parse(ActionProposedByAgentLoop.kind)!;
 final _resultKind = Kind.parse(resultOfActionOrWhyRefusedKind)!;
 
-/// Chain-walking (which trajectory an entry is on) is tracked by
-/// [EntryHash], `is_journal`'s own hash of its 96-byte metadata record
-/// (previous journal head, code hash, object id) — the same space
-/// [Entry.hash] and [Entry.previous] are in, and NOT the same number as
-/// [EntryId], which is `is_shapes`'s hash of an entry's own object bytes
-/// (what it actually says, header included). The two only coincide by
-/// accident on a direct hash of the same bytes, never on a real entry: a
-/// proposal's wire identity ([Trajectory.consider]'s `proposed`, and the
-/// `proposed` field [readResultOfActionOrWhyRefused] reads back) is always
-/// [EntryId.of] the entry's `recorded` bytes, computed fresh — never
-/// derived from its [EntryHash].
+/// Under is_logbook 0.2.0, [Entry.id] (chain-walking's own space, via
+/// [Entry.previous]) is the [ObjectId] of the entry's bytes — the same
+/// sha256 [EntryId.of] computes over an entry's object text — so chain
+/// identity and content identity are now one id space (see
+/// lib/src/record_index.dart). A proposal's wire identity
+/// ([Trajectory.consider]'s `proposed`, and the `proposed` field
+/// [readResultOfActionOrWhyRefused] reads back) is still computed as
+/// [EntryId.of] the entry's `recorded` bytes directly, since that is
+/// is_airlock_api's own type, not is_logbook's — equal in value, never in
+/// type.
 
 /// This trajectory's place in a turn, for now: the proposing loop and this
 /// service are the only two sides that read it, and neither exists yet
@@ -103,9 +102,10 @@ final class _Buffered {
     required this.trajectory,
   });
 
-  /// This entry's hash, as [Trajectory.consider]'s `proposed` and
-  /// [ReturnedProposal.proposed] name it — `is_shapes`'s [EntryId], not
-  /// `is_journal`'s own [EntryHash]: the same sha256, a different type.
+  /// This entry's id, as [Trajectory.consider]'s `proposed` and
+  /// [readResultOfActionOrWhyRefused]'s `proposed` name it — `is_shapes`'s
+  /// [EntryId], not is_logbook's own [ObjectId]: the same sha256, a
+  /// different type.
   final EntryId id;
   final Uint8List body;
   final TrajectoryId trajectory;
@@ -210,22 +210,15 @@ Future<void> runAirlockService({
   }
 
   await for (final item in subscribe()) {
-    // Indexed by content before any kind-specific handling, so every
-    // entry — not just the kinds this service has a case for — carries its
+    // Indexed by id before any kind-specific handling, so every entry —
+    // not just the kinds this service has a case for — carries its
     // chain's trajectory forward and is findable by EntryId for recordedOn.
-    if (item case Entry(
-      :final hash,
-      :final previous,
-      :final kind,
-      recorded: final recorded,
-      :final body,
-    )) {
+    if (item case Entry(:final id, :final previous, :final kind, :final body)) {
       recordIndex.add(
-        hash,
+        id,
         previous: previous,
-        recorded: recorded,
-        body: body,
-        kind: kind?.toString() ?? '',
+        kind: kind.toString(),
+        body: utf8.decode(body),
       );
     }
     switch (item) {
@@ -243,37 +236,34 @@ Future<void> runAirlockService({
         }
         buffered.clear();
 
-      case Entry(kind: null, :final hash):
-        throw StateError('${hash.hex}: entry has no kind');
-
-      case Entry(:final kind, :final hash, recorded: final recorded)
+      case Entry(:final kind, :final id, recorded: final recorded)
           when kind == _admittedKind:
         switch (readTrajectoryStart<WhatMayLeaveThisMachine>(
           recorded,
           rules: parseRules,
         )) {
           case EntryStartsTrajectory<WhatMayLeaveThisMachine>(
-            trajectory: final id,
+            trajectory: final trajectoryId,
             rules: final rules,
           ):
-            rulesOf[id] = rules;
-            build(id);
+            rulesOf[trajectoryId] = rules;
+            build(trajectoryId);
           case EntryStartsNoTrajectory<WhatMayLeaveThisMachine>():
             break;
           case UnreadableTrajectoryEntry<WhatMayLeaveThisMachine>(:final why):
-            throw StateError('${hash.hex}: admitted entry unreadable: $why');
+            throw StateError('${id.hex}: admitted entry unreadable: $why');
         }
 
-      case Entry(:final kind, hash: final hash, :final body)
+      case Entry(:final kind, :final id, :final body)
           when kind == _assignedKind:
         final assigned = _decodeAssigned(body);
         if (assigned == null) {
           throw StateError(
-            '${hash.hex}: not a users-assigned-to-trajectory entry',
+            '${id.hex}: not a users-assigned-to-trajectory entry',
           );
         }
         suitOf[assigned.trajectory] = assigned.suit;
-        recordIndex.root(hash, assigned.trajectory);
+        recordIndex.root(id, assigned.trajectory);
         build(assigned.trajectory);
 
       case Entry(:final kind, :final body) when kind == _resultKind:
@@ -289,16 +279,16 @@ Future<void> runAirlockService({
         // tell us a proposal is already answered.
         if (read != null) answered.add(read.proposed);
 
-      case Entry(:final kind, :final hash, recorded: final recorded, :final body)
+      case Entry(:final kind, :final id, recorded: final recorded, :final body)
           when kind == _proposedKind:
-        final onTrajectory = recordIndex.trajectoryOf(hash);
+        final onTrajectory = recordIndex.trajectoryOf(id);
         if (onTrajectory == null) {
           // Not on any live trajectory's chain: either stale, or the
-          // journal hasn't yet been made to enforce that a trajectory's
+          // logbook hasn't yet been made to enforce that a trajectory's
           // chain takes entries only from its own loop user (airlock-api-04,
           // 17 Nov: confirm this on the box). Ignored rather than acted on
           // under an unchecked claim of whose it is.
-          say('${hash.hex}: proposed entry is on no live trajectory, skipping');
+          say('${id.hex}: proposed entry is on no live trajectory, skipping');
           break;
         }
         // task 20's hard gate: without proposalsEnabled, chain ownership is

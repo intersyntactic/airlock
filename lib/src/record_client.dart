@@ -1,5 +1,5 @@
-/// A client of `is_journal`'s one writer service, over [JournalWriter]
-/// from `is_journal_client` — the one reviewed client, not a hand-rolled
+/// A client of `is_logbook`'s one writer service, over [LogbookWriter]
+/// from `is_logbook_client` — the one reviewed client, not a hand-rolled
 /// copy of its wire protocol.
 ///
 /// Most entries this package sends start their own chain (`previous`
@@ -11,7 +11,7 @@ library;
 
 import 'dart:typed_data';
 
-import 'package:is_journal_client/is_journal_client.dart';
+import 'package:is_logbook_client/is_logbook_client.dart';
 
 /// The writer refused the entry outright: nothing was added, so sending
 /// it again (once whatever [why] names is fixed) is safe.
@@ -46,22 +46,24 @@ final class RecordClient {
   /// Sends one entry of [kind] — a name the writer's sender table lists
   /// for this process's own user — with [body] as its payload, extending
   /// [previous]'s chain, or starting a new one when it is null. Returns
-  /// the written entry's hash.
+  /// the written entry's id.
   ///
   /// Throws [RecordRefused] or [RecordFailed] on anything but a plain
-  /// success — never a hash on a failure, since a caller that cannot
-  /// tell the two apart could go on as though something had been
-  /// recorded when nothing was, or send it again when it already had.
-  Future<EntryHash> send(
+  /// success — never an id on a failure, since a caller that cannot tell
+  /// the two apart could go on as though something had been recorded
+  /// when nothing was, or send it again when it already had.
+  /// [AlreadyRecorded] counts as success: these exact bytes, kind and
+  /// previous are already in, by this call or an earlier one.
+  Future<ObjectId> send(
     String kind,
     Uint8List body, {
-    EntryHash? previous,
+    ObjectId? previous,
   }) async {
-    final result = await JournalWriter(
+    final result = await LogbookWriter(
       socketPath,
     ).write(Kind.parse(kind)!, body, previous: previous);
     return switch (result) {
-      Written(:final entry) => entry,
+      Written(:final entry) || AlreadyRecorded(:final entry) => entry,
       NotTip() => throw RecordFailed(
         previous == null
             ? 'this package only ever starts its own chain here, so the '

@@ -3,10 +3,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:is_airlock/is_airlock.dart';
-import 'package:is_journal/is_journal.dart';
+import 'package:is_logbook/is_logbook.dart';
 import 'package:test/test.dart';
 
-import 'journal_service_harness.dart';
+import 'logbook_service_harness.dart';
 
 /// A trajectory id, as the hash of some entry that started it. [seed]
 /// stands in for that entry's bytes; this test never reads a trajectory id
@@ -40,8 +40,8 @@ final class _FakeWebDriver implements CarriesOutWebRequests {
   ) async => onSend(request);
 }
 
-/// The bytes of every entry the harness's journal holds, in order, read
-/// straight from `entries` and `objects/` (documented in is_journal's
+/// The bytes of every entry the harness's logbook holds, in order, read
+/// straight from `entries` and `objects/` (documented in is_logbook's
 /// README) rather than through any id this test would otherwise have to
 /// track by hand. Includes the service's own `started` entry (always
 /// first) and each entry's wire header (`<kind>\n<follows>\n`) ahead of
@@ -63,10 +63,10 @@ Uint8List _object(Directory journalDir, Uint8List digest) {
 }
 
 void main() {
-  late JournalServiceHarness harness;
+  late LogbookServiceHarness harness;
 
   setUp(() async {
-    harness = await JournalServiceHarness.start([
+    harness = await LogbookServiceHarness.start([
       'airlock-decision-on-action',
       'airlock-decision-on-web-request',
       'result-of-action-or-why-refused',
@@ -146,14 +146,14 @@ void main() {
 
     await run.next(path(a).at(1));
 
-    final journal = Journal.open(harness.journalDir)!;
+    final logbook = Logbook.open(harness.journalDir)!;
     try {
-      final result = journal.check();
+      final result = logbook.check();
       expect(result, isA<Intact>());
       // The service's own `started` entry, plus the decision and its result.
       expect((result as Intact).count, 3);
     } finally {
-      journal.close();
+      logbook.close();
     }
   });
 
