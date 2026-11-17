@@ -116,10 +116,9 @@ final class _Buffered {
 /// A trajectory is built once it has both its rules (from
 /// `event-admitted-to-mission`) and its suit (from
 /// `users-assigned-to-trajectory`); the two can arrive in either order.
-/// [drivers] is the same set for every trajectory — tonight, just the web
-/// driver: no file or program driver yet (scope trimmed for the demo), and
-/// no model driver (`AsksTheModel` has no `Program` case in 0.7.1 to route
-/// to it).
+/// [drivers] is the same set for every trajectory — tonight, the web
+/// driver and the model driver (`AsksTheModel`); no file or program driver
+/// yet (scope trimmed for the demo).
 ///
 /// Nothing is decided until the backlog has fully arrived ([CaughtUp]):
 /// every `proposed` entry found before then is held in [_Buffered] rather
@@ -227,7 +226,11 @@ Future<void> runAirlockService({
         say('airlock service: live');
         if (proposalsEnabled) {
           for (final entry in buffered) {
-            if (!answered.contains(entry.id)) await consider(entry);
+            if (answered.contains(entry.id)) {
+              say('${entry.id.hex}: already answered, skipping');
+            } else {
+              await consider(entry);
+            }
           }
         }
         buffered.clear();
@@ -285,6 +288,7 @@ Future<void> runAirlockService({
           // chain takes entries only from its own loop user (airlock-api-04,
           // 17 Nov: confirm this on the box). Ignored rather than acted on
           // under an unchecked claim of whose it is.
+          say('${hash.hex}: proposed entry is on no live trajectory, skipping');
           break;
         }
         // task 20's hard gate: without proposalsEnabled, chain ownership is
@@ -298,7 +302,11 @@ Future<void> runAirlockService({
           trajectory: onTrajectory,
         );
         if (caughtUp) {
-          if (!answered.contains(entry.id)) await consider(entry);
+          if (answered.contains(entry.id)) {
+            say('${entry.id.hex}: already answered, skipping');
+          } else {
+            await consider(entry);
+          }
         } else {
           buffered.add(entry);
         }
