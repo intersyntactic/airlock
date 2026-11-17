@@ -11,15 +11,26 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:is_airlock_api/is_airlock_api.dart' show EntryId, TrajectoryId;
+import 'package:is_airlock_api/is_airlock_api.dart'
+    show
+        EntryId,
+        TrajectoryId,
+        readResultOfActionOrWhyRefused,
+        resultOfActionOrWhyRefusedKind;
 import 'package:is_effects/is_effects.dart' show Outcome, Ran, Refused;
 import 'package:is_journal_client/is_journal_client.dart' show EntryHash;
 
 final class _Indexed {
-  const _Indexed({required this.hash, required this.trajectory, required this.body});
+  const _Indexed({
+    required this.hash,
+    required this.trajectory,
+    required this.kind,
+    required this.body,
+  });
 
   final EntryHash hash;
   final TrajectoryId? trajectory;
+  final String kind;
   final String body;
 }
 
@@ -46,35 +57,69 @@ final class RecordIndex {
   TrajectoryId? trajectoryOf(EntryHash hash) => _trajectoryOf[hash];
 
   /// Indexes [hash] (this entry's own hash), with [recorded] (its object
-  /// bytes, header included) and [body] (the same, header stripped, what
-  /// [recordedOn] actually gives back). [hash]'s trajectory is [previous]'s,
-  /// if [previous] is on one — the same chain-walk [root] seeds.
+  /// bytes, header included), [kind] and [body] (the same, header stripped,
+  /// what [recordedOn] actually gives back). [hash]'s trajectory is
+  /// [previous]'s, if [previous] is on one — the same chain-walk [root]
+  /// seeds.
   void add(
     EntryHash hash, {
     required EntryHash? previous,
     required Uint8List recorded,
     required Uint8List body,
+    required String kind,
   }) {
     final trajectory = previous == null ? null : _trajectoryOf[previous];
     if (trajectory != null) _trajectoryOf[hash] = trajectory;
     _byContent
         .putIfAbsent(EntryId.of(recorded).hex, () => [])
-        .add(_Indexed(hash: hash, trajectory: trajectory, body: utf8.decode(body)));
+        .add(
+          _Indexed(
+            hash: hash,
+            trajectory: trajectory,
+            kind: kind,
+            body: utf8.decode(body),
+          ),
+        );
   }
 
-  /// [entry]'s content, when it is on [trajectory]'s own chain; [Refused]
-  /// with why not. Never [get]s the record: everything needed already went
-  /// by on the subscription (airlock-api-04, 18 Nov).
-  Future<Outcome<String>> recordedOn(
+  /// Whether [candidate] belongs to [trajectory] because it is a
+  /// [resultOfActionOrWhyRefusedKind] entry the airlock kept for one of
+  /// its proposals: its own body names a `proposed` entry that is on
+  /// [trajectory]'s chain.
+  bool _resultBelongsTo(_Indexed candidate, TrajectoryId trajectory) {
+    if (candidate.kind != resultOfActionOrWhyRefusedKind) return false;
+    final read = readResultOfActionOrWhyRefused(_jsonOrNull(candidate.body));
+    if (read == null) return false;
+    final proposed = _byContent[read.proposed.hex] ?? const [];
+    return proposed.any((c) => c.trajectory == trajectory);
+  }
+
+  /// [entry]'s kind and content, when it belongs to [trajectory]: on its
+  /// own chain, or a [resultOfActionOrWhyRefusedKind] entry kept for one of
+  /// its proposals. [Refused] with why not. Never [get]s the record:
+  /// everything needed already went by on the subscription (airlock-api-04,
+  /// 18 Nov).
+  Future<Outcome<({String kind, String body})>> recordedOn(
     TrajectoryId trajectory,
     EntryId entry,
   ) async {
     final candidates = _byContent[entry.hex] ?? const [];
     for (final candidate in candidates) {
-      if (candidate.trajectory == trajectory) return Ran(candidate.body);
+      if (candidate.trajectory == trajectory ||
+          _resultBelongsTo(candidate, trajectory)) {
+        return Ran((kind: candidate.kind, body: candidate.body));
+      }
     }
     return candidates.isEmpty
         ? Refused('${entry.hex} is not recorded')
         : Refused('${entry.hex} is on another chain');
+  }
+}
+
+Object? _jsonOrNull(String text) {
+  try {
+    return jsonDecode(text);
+  } on FormatException {
+    return null;
   }
 }

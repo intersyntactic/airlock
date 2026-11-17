@@ -1,21 +1,21 @@
 /// Running the airlock as a record subscriber: building one [Trajectory]
 /// per path from its `event-admitted-to-mission` and
-/// `users-assigned-to-trajectory` entries, and reacting to each `proposed`
-/// entry on a trajectory's own chain by deciding, recording and running its
-/// driver.
+/// `users-assigned-to-trajectory` entries, and reacting to each
+/// `action-proposed-by-agent-loop` entry on a trajectory's own chain by
+/// deciding, recording and running its driver.
 ///
 /// "The airlock has no door of its own" (lib/src/proposal.dart, 0.7.1): a
 /// loop never reaches this service directly. It only ever follows the
 /// record.
 ///
-/// A [Decided] starts a chain no trajectory owns (the journal refuses any
+/// A decision starts a chain no trajectory owns (the journal refuses any
 /// other write there as `not-owner`, since only a trajectory's own loop
 /// user may extend its chain — airlock-api-04 and teams-module-e2, 17 Nov),
 /// so the journal's tip check gives this package no "one decision per
 /// proposal" for free. [runAirlockService] rebuilds which proposals already
 /// have an answer from the record itself before deciding anything new, by
-/// reading every `returned` entry's [ReturnedProposal.proposed] in the
-/// backlog first.
+/// reading every `result-of-action-or-why-refused` entry's `proposed` in
+/// the backlog first.
 library;
 
 import 'dart:convert';
@@ -39,8 +39,8 @@ import 'record_index.dart';
 
 final _admittedKind = Kind.parse('event-admitted-to-mission')!;
 final _assignedKind = Kind.parse('users-assigned-to-trajectory')!;
-final _proposedKind = Kind.parse('proposed')!;
-final _returnedKind = Kind.parse(ReturnedProposal.kind)!;
+final _proposedKind = Kind.parse(ActionProposedByAgentLoop.kind)!;
+final _resultKind = Kind.parse(resultOfActionOrWhyRefusedKind)!;
 
 /// Chain-walking (which trajectory an entry is on) is tracked by
 /// [EntryHash], `is_journal`'s own hash of its 96-byte metadata record
@@ -49,9 +49,10 @@ final _returnedKind = Kind.parse(ReturnedProposal.kind)!;
 /// [EntryId], which is `is_shapes`'s hash of an entry's own object bytes
 /// (what it actually says, header included). The two only coincide by
 /// accident on a direct hash of the same bytes, never on a real entry: a
-/// proposal's wire identity ([Trajectory.consider]'s `proposed`,
-/// [ReturnedProposal.proposed]) is always [EntryId.of] the entry's
-/// `recorded` bytes, computed fresh — never derived from its [EntryHash].
+/// proposal's wire identity ([Trajectory.consider]'s `proposed`, and the
+/// `proposed` field [readResultOfActionOrWhyRefused] reads back) is always
+/// [EntryId.of] the entry's `recorded` bytes, computed fresh — never
+/// derived from its [EntryHash].
 
 /// This trajectory's place in a turn, for now: the proposing loop and this
 /// service are the only two sides that read it, and neither exists yet
@@ -192,8 +193,8 @@ Future<void> runAirlockService({
       say('${entry.id.hex}: proposal is not JSON: ${e.message}');
       return;
     }
-    switch (Proposal.read(json)) {
-      case final Proposal proposal:
+    switch (ActionProposedByAgentLoop.read(json)) {
+      case final ActionProposedByAgentLoop proposal:
         final place = switch (proposal.place) {
           final int place => place,
           _ => null,
@@ -215,10 +216,17 @@ Future<void> runAirlockService({
     if (item case Entry(
       :final hash,
       :final previous,
+      :final kind,
       recorded: final recorded,
       :final body,
     )) {
-      recordIndex.add(hash, previous: previous, recorded: recorded, body: body);
+      recordIndex.add(
+        hash,
+        previous: previous,
+        recorded: recorded,
+        body: body,
+        kind: kind?.toString() ?? '',
+      );
     }
     switch (item) {
       case CaughtUp():
@@ -268,16 +276,18 @@ Future<void> runAirlockService({
         recordIndex.root(hash, assigned.trajectory);
         build(assigned.trajectory);
 
-      case Entry(:final kind, :final body) when kind == _returnedKind:
+      case Entry(:final kind, :final body) when kind == _resultKind:
+        final Object? json;
         try {
-          answered.add(
-            ReturnedProposal.fromJson(jsonDecode(utf8.decode(body))).proposed,
-          );
+          json = jsonDecode(utf8.decode(body));
         } on FormatException {
-          // Not every 'returned' entry need be a ReturnedProposal (an
-          // action proposed in-process, with no loop waiting, has none);
-          // only ones that are tell us a proposal is already answered.
+          break;
         }
+        final read = readResultOfActionOrWhyRefused(json);
+        // Not every result entry answers a proposal (an action proposed
+        // in-process, with no loop waiting, has none); only ones that do
+        // tell us a proposal is already answered.
+        if (read != null) answered.add(read.proposed);
 
       case Entry(:final kind, :final hash, recorded: final recorded, :final body)
           when kind == _proposedKind:

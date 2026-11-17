@@ -51,12 +51,8 @@ Future<void> main() async {
   final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
     RecordClient(recordSocket),
     decide: _decide,
-    // No renderer registry yet (task 27/22): every web request is denied
-    // for naming no renderer, before rules are even asked.
-    renderer: (name) async => null,
-    rendered: (decided) async =>
-        const Refused('renderer not wired yet (task 27)'),
     recordedOn: recordIndex.recordedOn,
+    placeToJson: (place) => place,
   );
 
   final proposalsEnabled = switch (

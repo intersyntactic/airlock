@@ -15,17 +15,8 @@ import 'journal_service_harness.dart';
 TrajectoryId _id(String seed) =>
     TrajectoryId.of(Uint8List.fromList(utf8.encode(seed)));
 
-/// A stub [Renderer], good enough that a [MakesWebRequest] reach isn't
-/// auto-denied for naming none — what it actually draws is a different
-/// test's concern.
-Renderer _renderer() => Renderer(
-  RendererId.parse('a' * 64)!,
-  executable: ObjectId.parse('b' * 64)!,
-);
-
 /// A [ReadsAndWritesFiles] that answers every read the same way, since
-/// these tests only need a real [Returned] entry to exist, not a real
-/// file.
+/// these tests only need a real result entry to exist, not a real file.
 final class _FakeFileDriver implements ReadsAndWritesFiles {
   @override
   Future<Outcome<ReadResult>> read(RelativePath path) async =>
@@ -75,28 +66,47 @@ void main() {
   late JournalServiceHarness harness;
 
   setUp(() async {
-    harness = await JournalServiceHarness.start(['decided', 'returned']);
+    harness = await JournalServiceHarness.start([
+      'airlock-decision-on-action',
+      'airlock-decision-on-web-request',
+      'result-of-action-or-why-refused',
+      'result',
+    ]);
   });
 
   tearDown(() async {
     await harness.stop();
   });
 
+  /// What a [Projection.teamsMessageFromModelReply] web request draws its
+  /// body from: a fixed `result-of-action-or-why-refused` entry whose
+  /// result ran to [modelReplyText], so every such request's
+  /// [MakeWebRequest] check passes regardless of which entry it names —
+  /// good enough for these tests, which care about the decision/result
+  /// lines, not about proving a real chain.
+  const modelReplyText = 'a reply';
+  final resultBody = jsonEncode({
+    'proposed': EntryId.of(utf8.encode('fake proposed')).hex,
+    'result': {'kind': 'ran', 'output': modelReplyText},
+  });
+  final teamsMessageBody = jsonEncode({
+    'type': 'message',
+    'text': modelReplyText,
+  });
+
   RecordedAirlock<String, int> airlock({
     Decision Function(Reach reach, String rules)? decide,
-    Future<Renderer?> Function(RendererName name)? renderer,
-    Future<Outcome<String>> Function(Decided<int> decided)? rendered,
   }) => RecordedAirlock<String, int>(
     RecordClient(harness.socketPath),
     decide: decide ?? (reach, rules) => const Allow(by: DecidedBy.rules),
-    renderer: renderer ?? (name) async => _renderer(),
-    rendered: rendered ?? (decided) async => const Ran('rendered body'),
-    recordedOn: (trajectory, entry) async => const Refused('n/a'),
+    recordedOn: (trajectory, entry) async =>
+        Ran((kind: resultOfActionOrWhyRefusedKind, body: resultBody)),
+    placeToJson: (place) => place,
   );
 
   /// A trajectory on [a], with one [_FakeFileDriver] and one
   /// [_FakeWebDriver] sending back [onSend], good for driving a real run
-  /// through `_consider` so the library itself produces a real [Returned]
+  /// through `_consider` so the library itself produces a real result
   /// (whose constructor this package can no longer call directly).
   Trajectory<String, int> path(
     RecordedAirlock<String, int> a, {
@@ -127,7 +137,7 @@ void main() {
     expect(decided, isTrue);
   });
 
-  test('a run records one Decided and one Returned entry', () async {
+  test('a run records one decision and one result entry', () async {
     final a = airlock();
     final run = Program.read.run<Outcome<ReadResult>>(
       RelativePath.root,
@@ -140,7 +150,7 @@ void main() {
     try {
       final result = journal.check();
       expect(result, isA<Intact>());
-      // The service's own `started` entry, plus Decided and Returned.
+      // The service's own `started` entry, plus the decision and its result.
       expect((result as Intact).count, 3);
     } finally {
       journal.close();
@@ -160,7 +170,9 @@ void main() {
           Program.web.run<Outcome<WebRequestOutcome>>(
             WebRequest(
               origin,
-              renderer: RendererName.parse('a-renderer')!,
+              body: teamsMessageBody,
+              projection: Projection.teamsMessageFromModelReply,
+              drawnFrom: EntryId.of(utf8.encode('fake proposed')),
               signIn: signIn,
             ),
             then: Done.new,
@@ -177,9 +189,13 @@ void main() {
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       expect(lines, contains(contains('sends $origin as cam-teams')));
       expect(lines, contains(contains('sends $origin as no sign-in')));
-      // Each is its own chain, per Nick's ruling: a decision never
-      // continues another entry's chain.
-      expect(lines, everyElement(contains('\n-\n')));
+      // Each decision is its own chain, per Nick's ruling: a decision
+      // never continues another entry's chain. Its result does continue
+      // it, as recordResult's own doc says.
+      final decisionLines = lines.where(
+        (l) => l.startsWith('airlock-decision-on-web-request\n'),
+      );
+      expect(decisionLines, everyElement(contains('\n-\n')));
     },
   );
 
@@ -192,7 +208,9 @@ void main() {
       Action<Object?> send() => Program.web.run<Outcome<WebRequestOutcome>>(
         WebRequest(
           origin,
-          renderer: RendererName.parse('a-renderer')!,
+          body: teamsMessageBody,
+          projection: Projection.teamsMessageFromModelReply,
+          drawnFrom: EntryId.of(utf8.encode('fake proposed')),
           signIn: SignIn.parse('cam-teams'),
         ),
         then: Done.new,
@@ -231,27 +249,27 @@ void main() {
   );
 
   test(
-    'a Returned answering a proposed action is a ReturnedProposal, not a '
-    'human line',
+    'a result answering a proposed action is resultOfActionOrWhyRefused, '
+    'not a human line',
     () async {
       final a = airlock();
       final trajectory = path(a);
       final proposedId = EntryId.of(utf8.encode('fake proposed'));
 
-      final received = Proposal.read({
+      final received = ActionProposedByAgentLoop.read({
         'program': 'read',
         'place': 1,
         'input': '',
       });
-      final proposal = received as Proposal;
+      final proposal = received as ActionProposedByAgentLoop;
       await trajectory.consider(proposal, 1, proposed: proposedId);
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
-      final returnedLine = lines.firstWhere(
+      final resultLine = lines.firstWhere(
         (l) => l.contains('"proposed":"${proposedId.hex}"'),
       );
-      expect(returnedLine, startsWith('returned\n'));
-      expect(returnedLine, isNot(contains('reads')));
+      expect(resultLine, startsWith('$resultOfActionOrWhyRefusedKind\n'));
+      expect(resultLine, isNot(contains('reads')));
     },
   );
 }

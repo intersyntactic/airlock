@@ -92,8 +92,8 @@ Future<(TrajectoryId, EntryHash)> _admitAndAssign(
 /// read on its chain, through [writer] — exactly the three records
 /// [runAirlockService] needs to decide something. Returns the proposed
 /// entry's own [EntryId] (`Trajectory.consider`'s and
-/// [ReturnedProposal.proposed]'s space — `EntryId.of` its object bytes,
-/// header included, never the `EntryHash` `write()` returns).
+/// [readResultOfActionOrWhyRefused]'s `proposed` space — `EntryId.of` its
+/// object bytes, header included, never the `EntryHash` `write()` returns).
 Future<EntryId> _propose(JournalWriter writer) async {
   final (_, assignedHash) = await _admitAndAssign(writer);
 
@@ -101,13 +101,13 @@ Future<EntryId> _propose(JournalWriter writer) async {
     utf8.encode(jsonEncode({'program': 'read', 'place': 1, 'input': ''})),
   );
   await writer.write(
-    Kind.parse('proposed')!,
+    Kind.parse(ActionProposedByAgentLoop.kind)!,
     proposedBody,
     previous: assignedHash,
   );
   return EntryId.of(
     Uint8List.fromList([
-      ...utf8.encode('proposed\n${assignedHash.hex}\n'),
+      ...utf8.encode('${ActionProposedByAgentLoop.kind}\n${assignedHash.hex}\n'),
       ...proposedBody,
     ]),
   );
@@ -116,7 +116,7 @@ Future<EntryId> _propose(JournalWriter writer) async {
 /// [proposedId]'s answer, if any of [harness]'s entries already carry one;
 /// waits up to [timeout] (polling every 20ms), rather than for a listener
 /// end `runAirlockService` never reaches.
-Future<ReturnedProposal?> _awaitAnswer(
+Future<({EntryId proposed, Object? result})?> _awaitAnswer(
   JournalServiceHarness harness,
   EntryId proposedId, {
   Duration timeout = const Duration(seconds: 2),
@@ -126,10 +126,14 @@ Future<ReturnedProposal?> _awaitAnswer(
     await Future<void>.delayed(const Duration(milliseconds: 20));
     for (final bytes in _entries(harness.journalDir)) {
       final text = utf8.decode(bytes, allowMalformed: true);
-      if (!text.startsWith('returned\n')) continue;
-      final body = text.substring(text.indexOf('\n', 9) + 1);
-      final decoded = ReturnedProposal.fromJson(jsonDecode(body));
-      if (decoded.proposed.hex == proposedId.hex) return decoded;
+      if (!text.startsWith('$resultOfActionOrWhyRefusedKind\n')) continue;
+      final body = text.substring(
+        text.indexOf('\n', resultOfActionOrWhyRefusedKind.length + 1) + 1,
+      );
+      final decoded = readResultOfActionOrWhyRefused(jsonDecode(body));
+      if (decoded != null && decoded.proposed.hex == proposedId.hex) {
+        return decoded;
+      }
     }
   }
   return null;
@@ -142,9 +146,10 @@ void main() {
     harness = await JournalServiceHarness.start([
       'event-admitted-to-mission',
       'users-assigned-to-trajectory',
-      'proposed',
-      'decided',
-      'returned',
+      'action-proposed-by-agent-loop',
+      'airlock-decision-on-action',
+      'airlock-decision-on-web-request',
+      'result-of-action-or-why-refused',
     ], withReadSocket: true);
   });
 
@@ -161,9 +166,8 @@ void main() {
       final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
         RecordClient(harness.socketPath),
         decide: (reach, rules) => const Allow(by: DecidedBy.rules),
-        renderer: (name) async => null,
-        rendered: (decided) async => const Refused('n/a'),
         recordedOn: recordIndex.recordedOn,
+        placeToJson: (place) => place,
       );
 
       unawaited(
@@ -180,7 +184,7 @@ void main() {
       final answer = await _awaitAnswer(harness, proposedId);
       expect(answer, isNotNull, reason: 'no answer within 2s');
       final outcome = decodeOutcome(
-        answer!.outcome,
+        answer!.result,
         (json, field) => decodeReadResult(json, field),
       );
       // No real ReadsAndWritesFiles driver is wired tonight (drivers: const
@@ -199,9 +203,8 @@ void main() {
       final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
         RecordClient(harness.socketPath),
         decide: (reach, rules) => const Allow(by: DecidedBy.rules),
-        renderer: (name) async => null,
-        rendered: (decided) async => const Refused('n/a'),
         recordedOn: recordIndex.recordedOn,
+        placeToJson: (place) => place,
       );
 
       unawaited(
