@@ -21,11 +21,7 @@ dependencies:
       url: https://github.com/intersyntactic/web_driver.git
       ref: 2026bd8cef817da3b52d0a49d7951a37e2149a83
       # main, after PR #13 (is_effects 0.8.0) merged.
-  is_docking_station:
-    git:
-      url: https://github.com/intersyntactic/docking_station.git
-      ref: db91a4a09330eb1266939d36ed502b400a269f89
-      # main, after PR #25 merged.
+  is_docking_station: ^0.1.0
   is_claude_code_driver:
     git:
       url: https://github.com/intersyntactic/claude_code_driver.git
