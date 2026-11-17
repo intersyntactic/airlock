@@ -150,7 +150,7 @@ void main() {
         decide: (reach, rules) => const Deny('no sign-in', by: DecidedBy.rules),
       );
 
-      Run<Object?> send(SignIn? signIn) => Program.web.run<Outcome<Sent>>(
+      Action<Object?> send(SignIn? signIn) => Program.web.run<Outcome<Sent>>(
         Send(
           origin,
           renderer: RendererName.parse('a-renderer')!,
@@ -179,7 +179,7 @@ void main() {
       final origin = Origin.parse('https://smba.trafficmanager.net')!;
       final a = airlock();
 
-      Run<Object?> send() => Program.web.run<Outcome<Sent>>(
+      Action<Object?> send() => Program.web.run<Outcome<Sent>>(
         Send(
           origin,
           renderer: RendererName.parse('a-renderer')!,
