@@ -5,11 +5,11 @@ import 'package:is_effects/is_effects.dart';
 
 import 'record_client.dart';
 
-/// An [Airlock] that sends what it decides and records to `is_journal`'s
-/// one writer, over a [RecordClient].
+/// A [DecidesAndRecordsActions] that sends what it decides and records to
+/// `is_journal`'s one writer, over a [RecordClient].
 ///
 /// What a run may do under `R` is the app's rules, not this package's: a
-/// journey path's `R` is whatever its host defines, so [decide] is given
+/// trajectory's `R` is whatever its host defines, so [decide] is given
 /// as a function rather than a shape this package would have to guess at.
 /// `P`, the host's place-in-a-turn type, is never read here either: it is
 /// logged by whatever it prints as, same as everything else an entry
@@ -20,7 +20,7 @@ import 'record_client.dart';
 /// what it recorded, are both genuinely this package's to build, but not
 /// yet — see lib/src/rendered.dart for [rendered]'s real logic, not yet
 /// wired in here.
-final class RecordedAirlock<R, P> implements Airlock<R, P> {
+final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   RecordedAirlock(
     this._record, {
     required this._decide,
@@ -56,7 +56,7 @@ final class RecordedAirlock<R, P> implements Airlock<R, P> {
 /// copy of what it carried: no file text, no program output.
 (String, String) _encode<P>(Entry<P> entry) => switch (entry) {
   Decided(
-    :final journeyPathId,
+    :final trajectoryId,
     :final place,
     :final reach,
     :final decision,
@@ -64,11 +64,11 @@ final class RecordedAirlock<R, P> implements Airlock<R, P> {
   ) =>
     (
       'decided',
-      '$journeyPathId@$place ${_reach(reach)} -> ${_decision(decision)}'
+      '$trajectoryId@$place ${_reach(reach)} -> ${_decision(decision)}'
           '${proposed == null ? '' : ' proposed=$proposed'}',
     ),
   Returned(
-    :final journeyPathId,
+    :final trajectoryId,
     :final place,
     :final reach,
     :final outcome,
@@ -76,7 +76,7 @@ final class RecordedAirlock<R, P> implements Airlock<R, P> {
   ) =>
     (
       'returned',
-      '$journeyPathId@$place ${_reach(reach)} -> ${_outcome(outcome)}'
+      '$trajectoryId@$place ${_reach(reach)} -> ${_outcome(outcome)}'
           '${proposed == null ? '' : ' proposed=$proposed'}',
     ),
 };
@@ -86,10 +86,10 @@ String _reach(Reach reach) => switch (reach) {
   Writes(:final file) => 'writes ${file.path}',
   Starts(:final program, :final args) =>
     'starts $program ${args.args.join(' ')}',
-  Sends(:final send, :final renderer) =>
-    'sends ${send.origin}${send.path} as ${send.signIn ?? 'no sign-in'} '
+  MakesWebRequest(:final request, :final renderer) =>
+    'sends ${request.origin}${request.path} as ${request.signIn ?? 'no sign-in'} '
     'renderer=${renderer?.id.toString() ?? 'none'} '
-    'draws ${send.entries.join(',')}',
+    'draws ${request.entries.join(',')}',
 };
 
 String _decision(Decision decision) => switch (decision) {
@@ -98,8 +98,9 @@ String _decision(Decision decision) => switch (decision) {
 };
 
 String _outcome(Outcome<Object?> outcome) => switch (outcome) {
-  Ran(output: Sent(created: final created?)) => 'ran created=$created',
-  Ran(output: Sent(refusedBecause: final refusedBecause?)) =>
+  Ran(output: WebRequestOutcome(created: final created?)) =>
+    'ran created=$created',
+  Ran(output: WebRequestOutcome(refusedBecause: final refusedBecause?)) =>
     'ran refusedBecause=$refusedBecause',
   Ran() => 'ran',
   Refused(:final why) => 'refused: $why',

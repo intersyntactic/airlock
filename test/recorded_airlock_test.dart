@@ -8,22 +8,25 @@ import 'package:test/test.dart';
 
 import 'journal_service_harness.dart';
 
-/// A journey path id, as the hash of some entry that started it. [seed]
-/// stands in for that entry's bytes; this test never reads a path id back
-/// to anything, so what it hashes doesn't matter, only that it's stable.
-JourneyPathId _id(String seed) =>
-    JourneyPathId.of(Uint8List.fromList(utf8.encode(seed)));
+/// A trajectory id, as the hash of some entry that started it. [seed]
+/// stands in for that entry's bytes; this test never reads a trajectory id
+/// back to anything, so what it hashes doesn't matter, only that it's
+/// stable.
+TrajectoryId _id(String seed) =>
+    TrajectoryId.of(Uint8List.fromList(utf8.encode(seed)));
 
-/// A stub [Renderer], good enough that a [Sends] reach isn't auto-denied
-/// for naming none — what it actually draws is a different test's concern.
+/// A stub [Renderer], good enough that a [MakesWebRequest] reach isn't
+/// auto-denied for naming none — what it actually draws is a different
+/// test's concern.
 Renderer _renderer() => Renderer(
   RendererId.parse('a' * 64)!,
   executable: ObjectId.parse('b' * 64)!,
 );
 
-/// A [FileDriver] that answers every read the same way, since these tests
-/// only need a real [Returned] entry to exist, not a real file.
-final class _FakeFileDriver implements FileDriver {
+/// A [ReadsAndWritesFiles] that answers every read the same way, since
+/// these tests only need a real [Returned] entry to exist, not a real
+/// file.
+final class _FakeFileDriver implements ReadsAndWritesFiles {
   @override
   Future<Outcome<ReadResult>> read(RelativePath path) async =>
       const Ran(ReadMissing());
@@ -33,15 +36,17 @@ final class _FakeFileDriver implements FileDriver {
       const Ran(Wrote(replaced: false));
 }
 
-/// A [WebDriver] that hands every [Request] to [onSend] and sends back
-/// whatever it returns.
-final class _FakeWebDriver implements WebDriver {
+/// A [CarriesOutWebRequests] that hands every [Request] to [onSend] and
+/// sends back whatever it returns.
+final class _FakeWebDriver implements CarriesOutWebRequests {
   _FakeWebDriver(this.onSend);
 
-  final Outcome<Sent> Function(Request request) onSend;
+  final Outcome<WebRequestOutcome> Function(Request request) onSend;
 
   @override
-  Future<Outcome<Sent>> send(Request request) async => onSend(request);
+  Future<Outcome<WebRequestOutcome>> carryOutWebRequest(
+    Request request,
+  ) async => onSend(request);
 }
 
 /// The bytes of every entry the harness's journal holds, in order, read
@@ -88,15 +93,15 @@ void main() {
     rendered: rendered ?? (decided) async => const Ran('rendered body'),
   );
 
-  /// A journey path on [a], with one [_FakeFileDriver] and one
+  /// A trajectory on [a], with one [_FakeFileDriver] and one
   /// [_FakeWebDriver] sending back [onSend], good for driving a real run
   /// through `_consider` so the library itself produces a real [Returned]
   /// (whose constructor this package can no longer call directly).
-  JourneyPath<String, int> path(
+  Trajectory<String, int> path(
     RecordedAirlock<String, int> a, {
     String rules = 'rules',
-    Outcome<Sent> Function(Request request)? onSend,
-  }) => JourneyPath<String, int>(
+    Outcome<WebRequestOutcome> Function(Request request)? onSend,
+  }) => Trajectory<String, int>(
     id: _id('conv-1'),
     drivers: [
       _FakeFileDriver(),
@@ -142,7 +147,7 @@ void main() {
   });
 
   test(
-    'a Decided entry for a Sends reach names the origin and sign-in',
+    'a Decided entry for a MakesWebRequest reach names the origin and sign-in',
     () async {
       final origin = Origin.parse('https://smba.trafficmanager.net')!;
       final allowed = airlock();
@@ -150,18 +155,22 @@ void main() {
         decide: (reach, rules) => const Deny('no sign-in', by: DecidedBy.rules),
       );
 
-      Action<Object?> send(SignIn? signIn) => Program.web.run<Outcome<Sent>>(
-        Send(
-          origin,
-          renderer: RendererName.parse('a-renderer')!,
-          signIn: signIn,
-        ),
-        then: Done.new,
-      );
+      Action<Object?> send(SignIn? signIn) =>
+          Program.web.run<Outcome<WebRequestOutcome>>(
+            WebRequest(
+              origin,
+              renderer: RendererName.parse('a-renderer')!,
+              signIn: signIn,
+            ),
+            then: Done.new,
+          );
 
-      await send(
-        SignIn.parse('cam-teams'),
-      ).next(path(allowed, onSend: (r) => const Ran(Sent(status: 201))).at(1));
+      await send(SignIn.parse('cam-teams')).next(
+        path(
+          allowed,
+          onSend: (r) => const Ran(WebRequestOutcome(status: 201)),
+        ).at(1),
+      );
       await send(null).next(path(denied).at(2));
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
@@ -174,13 +183,13 @@ void main() {
   );
 
   test(
-    'a Returned entry for a Sent outcome carries the created id, when there is one',
+    'a Returned entry for a WebRequestOutcome carries the created id, when there is one',
     () async {
       final origin = Origin.parse('https://smba.trafficmanager.net')!;
       final a = airlock();
 
-      Action<Object?> send() => Program.web.run<Outcome<Sent>>(
-        Send(
+      Action<Object?> send() => Program.web.run<Outcome<WebRequestOutcome>>(
+        WebRequest(
           origin,
           renderer: RendererName.parse('a-renderer')!,
           signIn: SignIn.parse('cam-teams'),
@@ -191,17 +200,19 @@ void main() {
       await send().next(
         path(
           a,
-          onSend: (r) => const Ran(Sent(status: 201, created: 'abc-123')),
+          onSend: (r) =>
+              const Ran(WebRequestOutcome(status: 201, created: 'abc-123')),
         ).at(1),
       );
       await send().next(
-        path(a, onSend: (r) => const Ran(Sent(status: 201))).at(2),
+        path(a, onSend: (r) => const Ran(WebRequestOutcome(status: 201))).at(2),
       );
       await send().next(
         path(
           a,
-          onSend: (r) =>
-              const Ran(Sent(status: 400, refusedBecause: 'error.code')),
+          onSend: (r) => const Ran(
+            WebRequestOutcome(status: 400, refusedBecause: 'error.code'),
+          ),
         ).at(3),
       );
 
