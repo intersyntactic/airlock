@@ -23,11 +23,8 @@ dependencies:
   is_docking_station:
     git:
       url: https://github.com/intersyntactic/docking_station.git
-      ref: 8b7a886582b0149d4cf79b1c5d782a0fb8a6a685
-      # PR #23 (https://github.com/intersyntactic/docking_station/pull/23),
-      # not merged yet: the is_logbook 0.2.0 move, confirmed stable by
-      # docking-station-cc (same code the live docking station runs).
-      # Repin to main's sha once Nick merges it.
+      ref: 8f299f352734ba40599e3933eb3418d8c3256ddb
+      # main, after PR #23 (is_logbook 0.2.0) merged.
   is_claude_code_driver:
     git:
       url: https://github.com/intersyntactic/claude_code_driver.git
