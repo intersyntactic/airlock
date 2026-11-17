@@ -195,7 +195,15 @@ Future<void> runAirlockService({
     }
     switch (Proposal.read(json)) {
       case final Proposal proposal:
-        await trajectory.consider(proposal, 1, proposed: entry.id);
+        final place = switch (proposal.place) {
+          final int place => place,
+          _ => null,
+        };
+        if (place == null) {
+          say('${entry.id.hex}: proposal has no valid place');
+          return;
+        }
+        await trajectory.consider(proposal, place, proposed: entry.id);
       case Rejected(:final why):
         say('${entry.id.hex}: proposal unreadable: $why');
     }
