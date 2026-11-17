@@ -11,6 +11,12 @@
 ///   AIRLOCK_RECORD_SOCKET       the writer service's Unix socket
 ///   AIRLOCK_RECORD_READ_SOCKET  the writer service's read/subscribe socket
 ///   AIRLOCK_WEB_DRIVER_SOCKET   the web driver's Unix socket
+///   AIRLOCK_PROPOSALS_ENABLED   `1` or `true` once infra-5e has confirmed
+///                               the record enforces that a trajectory's
+///                               chain takes entries only from its own loop
+///                               user; unset or anything else means no
+///                               `proposed` entry is acted on (task 20,
+///                               Nick's call — flag only, no version check).
 library;
 
 import 'dart:io';
@@ -42,11 +48,20 @@ Future<void> main() async {
         const Refused('renderer not wired yet (task 27)'),
   );
 
-  stderr.writeln('airlock service: subscribing to $readSocket');
+  final proposalsEnabled = switch (
+      Platform.environment['AIRLOCK_PROPOSALS_ENABLED']?.toLowerCase()) {
+    '1' || 'true' => true,
+    _ => false,
+  };
+  stderr.writeln(
+    'airlock service: subscribing to $readSocket '
+    '(proposals ${proposalsEnabled ? 'enabled' : 'disabled'})',
+  );
   await runAirlockService(
     subscribe: () => JournalReader(readSocket).subscribe(),
     airlock: airlock,
     drivers: [WebDriverSocket(File(webDriverSocket))],
+    proposalsEnabled: proposalsEnabled,
     say: stderr.writeln,
   );
 }

@@ -125,10 +125,20 @@ final class _Buffered {
 /// service. Once caught up, every still-unanswered buffered proposal is
 /// considered, in the record's order, and every later one is considered as
 /// it arrives.
+///
+/// [proposalsEnabled] is the hard gate task 20 asked for: until the record
+/// enforces that a trajectory's chain takes entries only from its own loop
+/// user, any loop user could write a `proposed` entry onto any trajectory's
+/// chain, and the airlock would act on it as that trajectory's own. While
+/// it is false, every `proposed` entry is ignored outright — not buffered,
+/// not considered, not counted as answered — and only `rules`/`suit`
+/// bookkeeping from `admitted`/`assigned` still runs. Flip it only once
+/// chain ownership is confirmed live (infra-5e's `AIRLOCK_PROPOSALS_ENABLED`).
 Future<void> runAirlockService({
   required Stream<Subscribed> Function() subscribe,
   required DecidesAndRecordsActions<WhatMayLeaveThisMachine, Place> airlock,
   required Iterable<CarriesOutActions> drivers,
+  required bool proposalsEnabled,
   required void Function(String line) say,
 }) async {
   final rulesOf = <TrajectoryId, WhatMayLeaveThisMachine>{};
@@ -192,8 +202,10 @@ Future<void> runAirlockService({
       case CaughtUp():
         caughtUp = true;
         say('airlock service: live');
-        for (final entry in buffered) {
-          if (!answered.contains(entry.id)) await consider(entry);
+        if (proposalsEnabled) {
+          for (final entry in buffered) {
+            if (!answered.contains(entry.id)) await consider(entry);
+          }
         }
         buffered.clear();
 
@@ -262,6 +274,11 @@ Future<void> runAirlockService({
           break;
         }
         trajectoryOf[hash] = onTrajectory;
+        // task 20's hard gate: without proposalsEnabled, chain ownership is
+        // unconfirmed, so a loop user writing onto another trajectory's
+        // chain would be acted on as that trajectory's own. Ignored
+        // outright, not even buffered, while it's off.
+        if (!proposalsEnabled) break;
         final entry = _Buffered(
           id: EntryId.of(recorded),
           body: body,

@@ -42,6 +42,87 @@ final _rulesJson = {
   'programsNetwork': 'noNetworkOfTheirOwn',
 };
 
+/// Writes docking_station's admitted entry, loop_launcher's assigned entry
+/// and an agent loop's proposed read, in that order, through [writer] —
+/// exactly the three records [runAirlockService] needs to decide something.
+/// Returns the proposed entry's own [EntryId] (`Trajectory.consider`'s and
+/// [ReturnedProposal.proposed]'s space — `EntryId.of` its object bytes,
+/// header included, never the `EntryHash` `write()` returns).
+Future<EntryId> _propose(JournalWriter writer) async {
+  const admittedKind = 'event-admitted-to-mission';
+  final admittedBody = Uint8List.fromList(
+    utf8.encode(
+      jsonEncode({
+        'event': EntryHash.of(utf8.encode('fake event')).hex,
+        'by': 'rules',
+        'reading': {'case': 'something-else'},
+        'startsMission': true,
+        'startsTrajectory': true,
+        'rules': _rulesJson,
+      }),
+    ),
+  );
+  final admittedObject = Uint8List.fromList([
+    ...utf8.encode('$admittedKind\n-\n'),
+    ...admittedBody,
+  ]);
+  final trajectoryId = TrajectoryId.of(admittedObject);
+  await writer.write(Kind.parse(admittedKind)!, admittedBody);
+
+  final assignedHash = _written(
+    await writer.write(
+      Kind.parse('users-assigned-to-trajectory')!,
+      Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'trajectory': trajectoryId.hex,
+            'mission': MissionId.of(admittedObject).hex,
+            'loopUser': 'loop-1',
+            'suit': 'suit-1',
+          }),
+        ),
+      ),
+    ),
+  );
+
+  final proposedBody = Uint8List.fromList(
+    utf8.encode(jsonEncode({'program': 'read', 'place': 1, 'input': ''})),
+  );
+  await writer.write(
+    Kind.parse('proposed')!,
+    proposedBody,
+    previous: assignedHash,
+  );
+  return EntryId.of(
+    Uint8List.fromList([
+      ...utf8.encode('proposed\n${assignedHash.hex}\n'),
+      ...proposedBody,
+    ]),
+  );
+}
+
+/// [proposedId]'s answer, if any of [harness]'s entries already carry one;
+/// waits up to [timeout] (polling every 20ms), rather than for a listener
+/// end `runAirlockService` never reaches.
+Future<ReturnedProposal?> _awaitAnswer(
+  JournalServiceHarness harness,
+  EntryId proposedId, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    for (final bytes in _entries(harness.journalDir)) {
+      final text = utf8.decode(bytes, allowMalformed: true);
+      if (!text.startsWith('returned\n')) continue;
+      final body = text.substring(text.indexOf('\n', 9) + 1);
+      final decoded = ReturnedProposal.fromJson(jsonDecode(body));
+      if (decoded.proposed.hex == proposedId.hex) return decoded;
+    }
+  }
+  return null;
+}
+
 void main() {
   late JournalServiceHarness harness;
 
@@ -62,69 +143,7 @@ void main() {
   test(
     'builds a trajectory from admitted+assigned and answers a proposed read',
     () async {
-      final writer = JournalWriter(harness.socketPath);
-
-      // docking_station's part: admits the trajectory. Its own id is
-      // `TrajectoryId.of` the entry's object bytes (header included) —
-      // `is_shapes`'s hash, not the `EntryHash` `write()` returns: the two
-      // are different hashes of different bytes (`EntryHash` names the
-      // journal's 96-byte metadata record, not the object itself).
-      const admittedKind = 'event-admitted-to-mission';
-      final admittedBody = Uint8List.fromList(
-        utf8.encode(
-          jsonEncode({
-            'event': EntryHash.of(utf8.encode('fake event')).hex,
-            'by': 'rules',
-            'reading': {'case': 'something-else'},
-            'startsMission': true,
-            'startsTrajectory': true,
-            'rules': _rulesJson,
-          }),
-        ),
-      );
-      final admittedObject = Uint8List.fromList([
-        ...utf8.encode('$admittedKind\n-\n'),
-        ...admittedBody,
-      ]);
-      final trajectoryId = TrajectoryId.of(admittedObject);
-      await writer.write(Kind.parse(admittedKind)!, admittedBody);
-
-      // loop_launcher's part: hands the trajectory its users.
-      final assignedHash = _written(
-        await writer.write(
-          Kind.parse('users-assigned-to-trajectory')!,
-          Uint8List.fromList(
-            utf8.encode(
-              jsonEncode({
-                'trajectory': trajectoryId.hex,
-                'mission': MissionId.of(admittedObject).hex,
-                'loopUser': 'loop-1',
-                'suit': 'suit-1',
-              }),
-            ),
-          ),
-        ),
-      );
-
-      // The agent loop's part: proposes a read, on the trajectory's own
-      // chain (previous = the assigned entry that rooted it).
-      final proposedBody = Uint8List.fromList(
-        utf8.encode(jsonEncode({'program': 'read', 'place': 1, 'input': ''})),
-      );
-      await writer.write(
-        Kind.parse('proposed')!,
-        proposedBody,
-        previous: assignedHash,
-      );
-      // The proposal's own identity, as `Trajectory.consider` and
-      // `ReturnedProposal.proposed` name it: `EntryId.of` its object bytes
-      // (header included), not the `EntryHash` `write()` returned.
-      final proposedId = EntryId.of(
-        Uint8List.fromList([
-          ...utf8.encode('proposed\n${assignedHash.hex}\n'),
-          ...proposedBody,
-        ]),
-      );
+      final proposedId = await _propose(JournalWriter(harness.socketPath));
 
       final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
         RecordClient(harness.socketPath),
@@ -138,24 +157,12 @@ void main() {
           subscribe: () => JournalReader(harness.readSocketPath!).subscribe(),
           airlock: airlock,
           drivers: const [],
+          proposalsEnabled: true,
           say: (_) {},
         ),
       );
 
-      // The service runs forever (no listener end); poll for its answer
-      // rather than await it, and let tearDown's harness.stop() end it.
-      ReturnedProposal? answer;
-      for (var i = 0; i < 100 && answer == null; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        for (final bytes in _entries(harness.journalDir)) {
-          final text = utf8.decode(bytes, allowMalformed: true);
-          if (!text.startsWith('returned\n')) continue;
-          final body = text.substring(text.indexOf('\n', 9) + 1);
-          final decoded = ReturnedProposal.fromJson(jsonDecode(body));
-          if (decoded.proposed.hex == proposedId.hex) answer = decoded;
-        }
-      }
-
+      final answer = await _awaitAnswer(harness, proposedId);
       expect(answer, isNotNull, reason: 'no answer within 2s');
       final outcome = decodeOutcome(
         answer!.outcome,
@@ -165,6 +172,37 @@ void main() {
       // []): the proposal is still decided, recorded and answered, but with
       // nothing able to carry it out.
       expect(outcome, isA<Refused>());
+    },
+  );
+
+  test(
+    'proposalsEnabled: false ignores a proposed entry outright (task 20)',
+    () async {
+      final proposedId = await _propose(JournalWriter(harness.socketPath));
+
+      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
+        RecordClient(harness.socketPath),
+        decide: (reach, rules) => const Allow(by: DecidedBy.rules),
+        renderer: (name) async => null,
+        rendered: (decided) async => const Refused('n/a'),
+      );
+
+      unawaited(
+        runAirlockService(
+          subscribe: () => JournalReader(harness.readSocketPath!).subscribe(),
+          airlock: airlock,
+          drivers: const [],
+          proposalsEnabled: false,
+          say: (_) {},
+        ),
+      );
+
+      final answer = await _awaitAnswer(
+        harness,
+        proposedId,
+        timeout: const Duration(milliseconds: 500),
+      );
+      expect(answer, isNull, reason: 'the gate should have refused to act');
     },
   );
 }
