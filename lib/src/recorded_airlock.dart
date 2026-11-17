@@ -42,8 +42,34 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   @override
   Future<Outcome<String>> rendered(Decided<P> decided) => _rendered(decided);
 
+  /// Writes [entry] in whichever shape its reader actually needs.
+  ///
+  /// A [Returned] answering a proposal (Nick, 16 Nov 20:45: "what an action
+  /// returns is in the record, once") is [ReturnedProposal], under its own
+  /// `returned` kind: the loop's `propose()` is waiting to decode exactly
+  /// that back, and a human line there would leave it waiting forever
+  /// instead of failing loudly. Everything else — read/write/start actions
+  /// proposed with no loop waiting, and any [Decided] — still gets
+  /// [_encode]'s human line for now: `is_journal`'s own design is that
+  /// nothing checks it as it runs, so a person reads it instead.
+  ///
+  /// A [Decided] whose reach is [MakesWebRequest] needs its own
+  /// [DecidedWebRequest] wire shape too, for the renderer that subscribes to
+  /// it — not done here yet (task 27: which chain its `Returned` and the
+  /// renderer's `Rendered` entry go on isn't settled; airlock-api-04 flagged
+  /// real uncertainty there on 17 Nov).
   @override
   Future<void> record(Entry<P> entry) async {
+    if (entry is Returned<P>) {
+      final proposal = ReturnedProposal.of(entry);
+      if (proposal != null) {
+        await _record.send(
+          ReturnedProposal.kind,
+          utf8.encode(jsonEncode(proposal.toJson())),
+        );
+        return;
+      }
+    }
     final (kind, body) = _encode(entry);
     await _record.send(kind, utf8.encode(body));
   }
@@ -51,9 +77,9 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
 
 /// The writer-service kind, and one journal line of body, for [entry].
 /// Human-readable, per `is_journal`'s own design ("nothing checks it as it
-/// runs, so a person reads it instead"), and, like the Teams relay's own
-/// log line, the reason a run was decided or what became of it, never a
-/// copy of what it carried: no file text, no program output.
+/// runs, so a person reads it instead"); for an entry no reader decodes
+/// (every case [record] doesn't give its own wire shape), never a copy of
+/// what it carried: no file text, no program output.
 (String, String) _encode<P>(Entry<P> entry) => switch (entry) {
   Decided(
     :final trajectoryId,

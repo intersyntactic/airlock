@@ -228,4 +228,29 @@ void main() {
       );
     },
   );
+
+  test(
+    'a Returned answering a proposed action is a ReturnedProposal, not a '
+    'human line',
+    () async {
+      final a = airlock();
+      final trajectory = path(a);
+      final proposedId = EntryId.of(utf8.encode('fake proposed'));
+
+      final received = Proposal.read({
+        'program': 'read',
+        'place': 1,
+        'input': '',
+      });
+      final proposal = received as Proposal;
+      await trajectory.consider(proposal, 1, proposed: proposedId);
+
+      final lines = _entries(harness.journalDir).map(utf8.decode).toList();
+      final returnedLine = lines.firstWhere(
+        (l) => l.contains('"proposed":"${proposedId.hex}"'),
+      );
+      expect(returnedLine, startsWith('returned\n'));
+      expect(returnedLine, isNot(contains('reads')));
+    },
+  );
 }

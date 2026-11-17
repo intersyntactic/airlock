@@ -16,6 +16,14 @@ dependencies:
   is_journal: ^0.7.0
   checked_json: ^0.2.1
   is_journal_client: ^0.1.0
+  is_web_driver:
+    git:
+      url: https://github.com/intersyntactic/web_driver.git
+      ref: 90f9e623baaf148badd23099c9af972b83753820
+  is_docking_station:
+    git:
+      url: https://github.com/intersyntactic/docking_station.git
+      ref: 6b08790c02fd005f418196873c9206df68d3fb43
 
 dev_dependencies:
   lints: ^6.1.0
