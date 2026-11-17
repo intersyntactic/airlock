@@ -1,26 +1,31 @@
-/// Starts a real `is_logbook:service` subprocess for tests to send to,
-/// matching a8's ask: test the new wire protocol against the real thing,
-/// not a reimplementation of it.
+/// Runs a real `is_logbook:service` in-process, the way `is_logbook_client`'s
+/// own tests do: a real [LogbookService] over real Unix sockets, matching
+/// a8's ask (test the new wire protocol against the real thing, not a
+/// reimplementation of it) without needing real OS accounts for whatever
+/// [LogbookService.start]'s own `uidOf` check is given to resolve.
 library;
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
-/// A running `is_logbook:service`, writing into its own temp directory.
+import 'package:is_logbook/is_logbook.dart';
+import 'package:is_logbook/service.dart';
+
+/// A running [LogbookService], writing into its own temp directory.
 final class LogbookServiceHarness {
   LogbookServiceHarness._(
     this.socketPath,
     this.readSocketPath,
     this.journalDir,
-    this._process,
+    this._service,
     this._dir,
   );
 
   /// The socket a [RecordClient] connects to.
   final String socketPath;
 
-  /// The socket `get`/`tip`/`follow` connect to, null unless [start] was
+  /// The socket `get`/`tip`/`subscribe` connect to, null unless [start] was
   /// asked for one.
   final String? readSocketPath;
 
@@ -28,64 +33,61 @@ final class LogbookServiceHarness {
   /// `entries`/`objects` directly, the way `is_logbook`'s own tests do.
   final Directory journalDir;
 
-  final Process _process;
+  final LogbookService _service;
   final Directory _dir;
 
+  /// The [Logbook] the service itself has open — for a test that wants to
+  /// read it directly (`check()`, say), since a second [Logbook.open] on
+  /// the same directory, in the same process, is refused.
+  Logbook get logbook => _service.logbook;
+
   /// Starts the service, granting this process's own user [kinds] to
-  /// send, and a read socket too when [withReadSocket]. Waits for its
-  /// "listening on" line before returning.
+  /// send, and a read socket too when [withReadSocket]. [uidOf] answers
+  /// [LogbookService.start]'s own check that `users-assigned-to-trajectory`
+  /// names real users — a map of made-up uids for the loop/suit names a
+  /// test writes, rather than real OS accounts.
   static Future<LogbookServiceHarness> start(
     List<String> kinds, {
     bool withReadSocket = false,
+    int? Function(String user)? uidOf,
   }) async {
     final dir = Directory.systemTemp.createTempSync('logbook_service_test_');
     final me = Process.runSync('id', ['-un']).stdout.toString().trim();
-    final sendersFile = File('${dir.path}/senders')
-      ..writeAsStringSync('$me ${kinds.join(' ')}\n');
+    final senders = SenderTable.parse(
+      Uint8List.fromList(utf8.encode('$me ${kinds.join(' ')}\n')),
+    );
     final socketPath = '${dir.path}/logbook.sock';
-    final readSocketPath = withReadSocket ? '${dir.path}/logbook-read.sock' : null;
+    final readSocketPath = withReadSocket
+        ? '${dir.path}/logbook-read.sock'
+        : null;
 
     final journalDir = Directory('${dir.path}/logbook');
-    final process = await Process.start(
-      'dart',
-      ['run', 'is_logbook:service'],
-      environment: {
-        'LOGBOOK_DIR': journalDir.path,
-        'LOGBOOK_SOCKET': socketPath,
-        'LOGBOOK_SENDERS': sendersFile.path,
-        if (readSocketPath != null) 'LOGBOOK_READ_SOCKET': readSocketPath,
-      },
+    final logbook = Logbook.open(journalDir)!;
+    final service = await LogbookService.start(
+      logbook,
+      senders,
+      File(socketPath),
+      readSocket: readSocketPath == null ? null : File(readSocketPath),
+      uidOf: uidOf ?? _uidOfUser,
     );
-
-    final ready = Completer<void>();
-    final errors = StringBuffer();
-    process.stdout.transform(utf8.decoder).listen((line) {
-      if (!ready.isCompleted && line.contains('listening on')) {
-        ready.complete();
-      }
-    });
-    process.stderr.transform(utf8.decoder).listen(errors.write);
-    final exited = process.exitCode.then((code) {
-      if (!ready.isCompleted) {
-        ready.completeError(
-          StateError('is_logbook:service exited $code: $errors'),
-        );
-      }
-    });
-    await Future.any([ready.future, exited]);
 
     return LogbookServiceHarness._(
       socketPath,
       readSocketPath,
       journalDir,
-      process,
+      service,
       dir,
     );
   }
 
   Future<void> stop() async {
-    _process.kill(ProcessSignal.sigterm);
-    await _process.exitCode;
+    await _service.close();
     _dir.deleteSync(recursive: true);
   }
+}
+
+int? _uidOfUser(String user) {
+  if (int.tryParse(user) case final uid?) return uid;
+  final r = Process.runSync('id', ['-u', user]);
+  return r.exitCode == 0 ? int.tryParse(r.stdout.toString().trim()) : null;
 }

@@ -146,15 +146,12 @@ void main() {
 
     await run.next(path(a).at(1));
 
-    final logbook = Logbook.open(harness.journalDir)!;
-    try {
-      final result = logbook.check();
-      expect(result, isA<Intact>());
-      // The service's own `started` entry, plus the decision and its result.
-      expect((result as Intact).count, 3);
-    } finally {
-      logbook.close();
-    }
+    // Reads the same Logbook the harness's service has open — a second
+    // Logbook.open on this directory, in this process, is refused.
+    final result = harness.logbook.check();
+    expect(result, isA<Intact>());
+    // The service's own `started` entry, plus the decision and its result.
+    expect((result as Intact).count, 3);
   });
 
   test(

@@ -36,6 +36,12 @@ ObjectId _written(WriteResult result) => switch (result) {
   _ => throw StateError('not written: $result'),
 };
 
+/// This process's own real uid — the one the logbook service's socket
+/// actually sees from a write this process makes, whatever `uidOf` says.
+final _realUid = int.parse(
+  Process.runSync('id', ['-u']).stdout.toString().trim(),
+);
+
 final _rulesJson = {
   'modelSignInsCallsMayGoOutAs': <String>[],
   'sitesTheWebDriverMayReach': <Object?>[],
@@ -144,14 +150,28 @@ void main() {
   late LogbookServiceHarness harness;
 
   setUp(() async {
-    harness = await LogbookServiceHarness.start([
-      'event-admitted-to-mission',
-      'users-assigned-to-trajectory',
-      'action-proposed-by-agent-loop',
-      'airlock-decision-on-action',
-      'airlock-decision-on-web-request',
-      'result-of-action-or-why-refused',
-    ], withReadSocket: true);
+    harness = await LogbookServiceHarness.start(
+      [
+        'event-admitted-to-mission',
+        'users-assigned-to-trajectory',
+        'action-proposed-by-agent-loop',
+        'airlock-decision-on-action',
+        'airlock-decision-on-web-request',
+        'result-of-action-or-why-refused',
+      ],
+      withReadSocket: true,
+      // loop-1 must resolve to this test process's own real uid: the
+      // logbook's chain-ownership check (`trajectory.loopUser != uid`)
+      // compares the recorded loopUser against the socket's real peer
+      // uid, which nothing in this process can spoof — a made-up uid
+      // for loop-1 would make every write past the assigned entry
+      // 'not-owner'. suit-1 only needs to differ from it.
+      uidOf: (user) => switch (user) {
+        'loop-1' => _realUid,
+        'suit-1' => _realUid + 1,
+        _ => null,
+      },
+    );
   });
 
   tearDown(() async {
@@ -160,10 +180,6 @@ void main() {
 
   test(
     'builds a trajectory from admitted+assigned and answers a proposed read',
-    skip:
-        'is_logbook 0.2.0 checks loopUser/suit against a real OS uid, which '
-        'nothing short of a real suit-1/loop-1 system account satisfies '
-        'locally (task 42; logbook-07 asked to add a uidOf hook for tests)',
     () async {
       final proposedId = await _propose(LogbookWriter(harness.socketPath));
 
@@ -202,10 +218,6 @@ void main() {
 
   test(
     'proposalsEnabled: false ignores a proposed entry outright (task 20)',
-    skip:
-        'is_logbook 0.2.0 checks loopUser/suit against a real OS uid, which '
-        'nothing short of a real suit-1/loop-1 system account satisfies '
-        'locally (task 42; logbook-07 asked to add a uidOf hook for tests)',
     () async {
       final proposedId = await _propose(LogbookWriter(harness.socketPath));
 
