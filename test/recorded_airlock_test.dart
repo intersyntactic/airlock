@@ -160,12 +160,12 @@ void main() {
       );
 
       await send(
-        SignIn.parse('cam'),
+        SignIn.parse('cam-teams'),
       ).next(path(allowed, onSend: (r) => const Ran(Sent(status: 201))).at(1));
       await send(null).next(path(denied).at(2));
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
-      expect(lines, contains(contains('sends $origin as cam')));
+      expect(lines, contains(contains('sends $origin as cam-teams')));
       expect(lines, contains(contains('sends $origin as no sign-in')));
       // Each is its own chain, per Nick's ruling: a decision never
       // continues another entry's chain.
@@ -183,7 +183,7 @@ void main() {
         Send(
           origin,
           renderer: RendererName.parse('a-renderer')!,
-          signIn: SignIn.parse('cam'),
+          signIn: SignIn.parse('cam-teams'),
         ),
         then: Done.new,
       );
