@@ -10,29 +10,30 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
-  is_airlock_api: ^0.10.0
-  is_effects: ^0.7.0
-  is_flight_rules: ^0.1.0
+  is_airlock_api: ^0.10.1
+  is_effects: ^0.8.0
+  is_flight_rules: ^0.1.1
   is_logbook: ^0.2.1
   checked_json: ^0.2.1
   is_logbook_client: ^0.2.0
   is_web_driver:
     git:
       url: https://github.com/intersyntactic/web_driver.git
-      ref: 90f9e623baaf148badd23099c9af972b83753820
+      ref: 2026bd8cef817da3b52d0a49d7951a37e2149a83
+      # main, after PR #13 (is_effects 0.8.0) merged.
   is_docking_station:
     git:
       url: https://github.com/intersyntactic/docking_station.git
-      ref: 8f299f352734ba40599e3933eb3418d8c3256ddb
-      # main, after PR #23 (is_logbook 0.2.0) merged.
+      ref: db91a4a09330eb1266939d36ed502b400a269f89
+      # main, after PR #25 merged.
   is_claude_code_driver:
     git:
       url: https://github.com/intersyntactic/claude_code_driver.git
-      ref: c8c9ae1
+      ref: b2f844cdbb5d8ea346af7bff1427fc093ae357af
 
 dev_dependencies:
   analyzer: ^14.7.0
-  is_shapes: ^0.5.0
+  is_shapes: ^0.6.0
   lints: ^6.1.0
   test: ^1.25.0
 
