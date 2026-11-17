@@ -19,8 +19,8 @@ import 'package:is_airlock_api/is_airlock_api.dart'
     show
         EntryId,
         TrajectoryId,
-        readResultOfActionOrWhyRefused,
-        resultOfActionOrWhyRefusedKind;
+        readOutcomeOfProposedAction,
+        outcomeOfProposedActionKind;
 import 'package:is_effects/is_effects.dart' show Outcome, Ran, Refused;
 import 'package:is_logbook_client/is_logbook_client.dart' show ObjectId;
 
@@ -69,18 +69,18 @@ final class RecordIndex {
   }
 
   /// Whether [indexed] belongs to [trajectory] because it is a
-  /// [resultOfActionOrWhyRefusedKind] entry the airlock kept for one of
+  /// [outcomeOfProposedActionKind] entry the airlock kept for one of
   /// its proposals: its own body names a `proposed` entry that is on
   /// [trajectory]'s chain.
   bool _resultBelongsTo(_Indexed indexed, TrajectoryId trajectory) {
-    if (indexed.kind != resultOfActionOrWhyRefusedKind) return false;
-    final read = readResultOfActionOrWhyRefused(_jsonOrNull(indexed.body));
+    if (indexed.kind != outcomeOfProposedActionKind) return false;
+    final read = readOutcomeOfProposedAction(_jsonOrNull(indexed.body));
     if (read == null) return false;
     return _byId[read.proposed.hex]?.trajectory == trajectory;
   }
 
   /// [entry]'s kind and content, when it belongs to [trajectory]: on its
-  /// own chain, or a [resultOfActionOrWhyRefusedKind] entry kept for one of
+  /// own chain, or a [outcomeOfProposedActionKind] entry kept for one of
   /// its proposals. [Refused] with why not. Never [get]s the record:
   /// everything needed already went by on the subscription (airlock-api-04,
   /// 18 Nov).

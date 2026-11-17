@@ -14,7 +14,7 @@
 /// so the journal's tip check gives this package no "one decision per
 /// proposal" for free. [runAirlockService] rebuilds which proposals already
 /// have an answer from the record itself before deciding anything new, by
-/// reading every `result-of-action-or-why-refused` entry's `proposed` in
+/// reading every `outcome-of-proposed-action` entry's `proposed` in
 /// the backlog first.
 library;
 
@@ -40,7 +40,7 @@ import 'record_index.dart';
 final _admittedKind = Kind.parse('event-admitted-to-mission')!;
 final _assignedKind = Kind.parse('users-assigned-to-trajectory')!;
 final _proposedKind = Kind.parse(ActionProposedByAgentLoop.kind)!;
-final _resultKind = Kind.parse(resultOfActionOrWhyRefusedKind)!;
+final _resultKind = Kind.parse(outcomeOfProposedActionKind)!;
 
 /// Under is_logbook 0.2.0, [Entry.id] (chain-walking's own space, via
 /// [Entry.previous]) is the [ObjectId] of the entry's bytes — the same
@@ -48,7 +48,7 @@ final _resultKind = Kind.parse(resultOfActionOrWhyRefusedKind)!;
 /// identity and content identity are now one id space (see
 /// lib/src/record_index.dart). A proposal's wire identity
 /// ([Trajectory.consider]'s `proposed`, and the `proposed` field
-/// [readResultOfActionOrWhyRefused] reads back) is still computed as
+/// [readOutcomeOfProposedAction] reads back) is still computed as
 /// [EntryId.of] the entry's `recorded` bytes directly, since that is
 /// is_airlock_api's own type, not is_logbook's — equal in value, never in
 /// type.
@@ -103,7 +103,7 @@ final class _Buffered {
   });
 
   /// This entry's id, as [Trajectory.consider]'s `proposed` and
-  /// [readResultOfActionOrWhyRefused]'s `proposed` name it — `is_shapes`'s
+  /// [readOutcomeOfProposedAction]'s `proposed` name it — `is_shapes`'s
   /// [EntryId], not is_logbook's own [ObjectId]: the same sha256, a
   /// different type.
   final EntryId id;
@@ -279,7 +279,7 @@ Future<void> runAirlockService({
         } on FormatException {
           break;
         }
-        final read = readResultOfActionOrWhyRefused(json);
+        final read = readOutcomeOfProposedAction(json);
         // Not every result entry answers a proposal (an action proposed
         // in-process, with no loop waiting, has none); only ones that do
         // tell us a proposal is already answered.

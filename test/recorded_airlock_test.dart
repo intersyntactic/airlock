@@ -69,7 +69,7 @@ void main() {
     harness = await LogbookServiceHarness.start([
       'airlock-decision-on-action',
       'airlock-decision-on-web-request',
-      'result-of-action-or-why-refused',
+      'outcome-of-proposed-action',
       'result',
     ]);
   });
@@ -79,7 +79,7 @@ void main() {
   });
 
   /// What a [Projection.teamsMessageFromModelReply] web request draws its
-  /// body from: a fixed `result-of-action-or-why-refused` entry whose
+  /// body from: a fixed `outcome-of-proposed-action` entry whose
   /// result ran to [modelReplyText], so every such request's
   /// [MakeWebRequest] check passes regardless of which entry it names —
   /// good enough for these tests, which care about the decision/result
@@ -100,7 +100,7 @@ void main() {
     RecordClient(harness.socketPath),
     decide: decide ?? (reach, rules) => const Allow(by: DecidedBy.rules),
     recordedOn: (trajectory, entry) async =>
-        Ran((kind: resultOfActionOrWhyRefusedKind, body: resultBody)),
+        Ran((kind: outcomeOfProposedActionKind, body: resultBody)),
     placeToJson: (place) => place,
   );
 
@@ -246,7 +246,7 @@ void main() {
   );
 
   test(
-    'a result answering a proposed action is resultOfActionOrWhyRefused, '
+    'a result answering a proposed action is outcomeOfProposedAction, '
     'not a human line',
     () async {
       final a = airlock();
@@ -265,7 +265,7 @@ void main() {
       final resultLine = lines.firstWhere(
         (l) => l.contains('"proposed":"${proposedId.hex}"'),
       );
-      expect(resultLine, startsWith('$resultOfActionOrWhyRefusedKind\n'));
+      expect(resultLine, startsWith('$outcomeOfProposedActionKind\n'));
       expect(resultLine, isNot(contains('reads')));
     },
   );
@@ -283,11 +283,11 @@ void main() {
       final resultLine = lines.firstWhere(
         (l) => l.contains('"proposed":"${proposedId.hex}"'),
       );
-      expect(resultLine, startsWith('$resultOfActionOrWhyRefusedKind\n'));
+      expect(resultLine, startsWith('$outcomeOfProposedActionKind\n'));
       final body = jsonDecode(
         resultLine.substring(resultLine.indexOf('{')),
       );
-      final read = readResultOfActionOrWhyRefused(body);
+      final read = readOutcomeOfProposedAction(body);
       expect(read, isNotNull);
       expect(read!.proposed, proposedId);
     },

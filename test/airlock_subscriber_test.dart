@@ -98,7 +98,7 @@ Future<(TrajectoryId, ObjectId)> _admitAndAssign(
 /// read on its chain, through [writer] — exactly the three records
 /// [runAirlockService] needs to decide something. Returns the proposed
 /// entry's own [EntryId] (`Trajectory.consider`'s and
-/// [readResultOfActionOrWhyRefused]'s `proposed` space — `EntryId.of` its
+/// [readOutcomeOfProposedAction]'s `proposed` space — `EntryId.of` its
 /// object bytes, header included: the same sha256 `write()`'s own
 /// [ObjectId] is, under is_airlock_api's own type).
 Future<EntryId> _propose(LogbookWriter writer) async {
@@ -133,11 +133,11 @@ Future<({EntryId proposed, Object? result})?> _awaitAnswer(
     await Future<void>.delayed(const Duration(milliseconds: 20));
     for (final bytes in _entries(harness.journalDir)) {
       final text = utf8.decode(bytes, allowMalformed: true);
-      if (!text.startsWith('$resultOfActionOrWhyRefusedKind\n')) continue;
+      if (!text.startsWith('$outcomeOfProposedActionKind\n')) continue;
       final body = text.substring(
-        text.indexOf('\n', resultOfActionOrWhyRefusedKind.length + 1) + 1,
+        text.indexOf('\n', outcomeOfProposedActionKind.length + 1) + 1,
       );
-      final decoded = readResultOfActionOrWhyRefused(jsonDecode(body));
+      final decoded = readOutcomeOfProposedAction(jsonDecode(body));
       if (decoded != null && decoded.proposed.hex == proposedId.hex) {
         return decoded;
       }
@@ -157,7 +157,7 @@ void main() {
         'action-proposed-by-agent-loop',
         'airlock-decision-on-action',
         'airlock-decision-on-web-request',
-        'result-of-action-or-why-refused',
+        'outcome-of-proposed-action',
       ],
       withReadSocket: true,
       // loop-1 must resolve to this test process's own real uid: the

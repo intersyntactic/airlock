@@ -72,8 +72,8 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   /// Writes [result] extending [decision]'s chain.
   ///
   /// A result answering a proposal (Nick, 16 Nov 20:45: "what an action
-  /// returns is in the record, once") is [resultOfActionOrWhyRefusedToJson],
-  /// under [resultOfActionOrWhyRefusedKind]: the loop's `propose()` is
+  /// returns is in the record, once") is [outcomeOfProposedActionToJson],
+  /// under [outcomeOfProposedActionKind]: the loop's `propose()` is
   /// waiting to decode exactly that back, and a human line there would
   /// leave it waiting forever instead of failing loudly. An action proposed
   /// in this service's own process, with no loop waiting, still gets
@@ -93,8 +93,8 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
     final proposed = decision.proposed;
     final (kind, body) = proposed != null
         ? (
-            resultOfActionOrWhyRefusedKind,
-            jsonEncode(resultOfActionOrWhyRefusedToJson(proposed, resultAsJson)),
+            outcomeOfProposedActionKind,
+            jsonEncode(outcomeOfProposedActionToJson(proposed, resultAsJson)),
           )
         : ('result', _encodeResult(decision, result));
     await _record.send(kind, utf8.encode(body), previous: previous);
@@ -102,13 +102,13 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
 
   /// Answers [proposed], a logbook entry this package never decided
   /// because it did not read as a proposal at all, with [why]: the same
-  /// [resultOfActionOrWhyRefusedKind] shape [recordResult] writes for a
+  /// [outcomeOfProposedActionKind] shape [recordResult] writes for a
   /// decided-and-refused action, so the loop waiting on it is answered
   /// either way, never left waiting forever because nothing to decide was
   /// ever found.
   Future<void> recordRejection(EntryId proposed, String why) async {
     await _record.send(
-      resultOfActionOrWhyRefusedKind,
+      outcomeOfProposedActionKind,
       utf8.encode(jsonEncode(proposalRejectedToJson(proposed, why))),
     );
   }
