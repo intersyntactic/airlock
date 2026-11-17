@@ -26,6 +26,7 @@ dependencies:
       ref: 6b08790c02fd005f418196873c9206df68d3fb43
 
 dev_dependencies:
+  analyzer: ^14.7.0
   is_shapes: ^0.5.0
   lints: ^6.1.0
   test: ^1.25.0

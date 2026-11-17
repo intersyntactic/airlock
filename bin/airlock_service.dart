@@ -49,6 +49,7 @@ Future<void> main() async {
   );
 
   final proposalsEnabled = switch (
+      // wire-ok: an environment variable, a boundary string
       Platform.environment['AIRLOCK_PROPOSALS_ENABLED']?.toLowerCase()) {
     '1' || 'true' => true,
     _ => false,

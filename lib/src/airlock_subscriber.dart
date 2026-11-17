@@ -35,6 +35,7 @@ import 'package:is_journal/service.dart' show Kind;
 import 'package:is_journal_client/is_journal_client.dart'
     show CaughtUp, Entry, EntryHash, Subscribed;
 
+final _admittedKind = Kind.parse('event-admitted-to-mission')!;
 final _assignedKind = Kind.parse('users-assigned-to-trajectory')!;
 final _proposedKind = Kind.parse('proposed')!;
 final _returnedKind = Kind.parse(ReturnedProposal.kind)!;
@@ -166,9 +167,10 @@ Future<void> runAirlockService({
   }
 
   WhatMayLeaveThisMachine? parseRules(Object? json) {
-    if (json is! Map<String, Object?>) return null;
+    final object = JsonObject.parse(json);
+    if (object == null) return null;
     try {
-      return WhatMayLeaveThisMachine.fromJson(JsonObject.of(json));
+      return WhatMayLeaveThisMachine.fromJson(object);
     } on FormatException {
       return null;
     }
@@ -212,8 +214,8 @@ Future<void> runAirlockService({
       case Entry(kind: null, :final hash):
         throw StateError('${hash.hex}: entry has no kind');
 
-      case Entry(kind: final kind!, :final hash, recorded: final recorded)
-          when kind.name == 'event-admitted-to-mission':
+      case Entry(:final kind, :final hash, recorded: final recorded)
+          when kind == _admittedKind:
         switch (readTrajectoryStart<WhatMayLeaveThisMachine>(
           recorded,
           rules: parseRules,
