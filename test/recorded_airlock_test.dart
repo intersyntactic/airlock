@@ -197,12 +197,23 @@ void main() {
       await send().next(
         path(a, onSend: (r) => const Ran(Sent(status: 201))).at(2),
       );
+      await send().next(
+        path(
+          a,
+          onSend: (r) =>
+              const Ran(Sent(status: 400, refusedBecause: 'error.code')),
+        ).at(3),
+      );
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       expect(lines, contains(contains('-> ran created=abc-123')));
       expect(
         lines,
         contains(predicate<String>((l) => l.endsWith('-> ran'))),
+      );
+      expect(
+        lines,
+        contains(contains('-> ran refusedBecause=error.code')),
       );
     },
   );
