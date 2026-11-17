@@ -143,6 +143,7 @@ Future<void> runAirlockService({
   required Iterable<CarriesOutActions> drivers,
   required bool proposalsEnabled,
   required RecordIndex recordIndex,
+  required Future<void> Function(EntryId proposed, String why) recordRejection,
   required void Function(String line) say,
 }) async {
   final rulesOf = <TrajectoryId, WhatMayLeaveThisMachine>{};
@@ -190,7 +191,9 @@ Future<void> runAirlockService({
     try {
       json = jsonDecode(utf8.decode(entry.body));
     } on FormatException catch (e) {
-      say('${entry.id.hex}: proposal is not JSON: ${e.message}');
+      final why = 'proposal is not JSON: ${e.message}';
+      say('${entry.id.hex}: $why');
+      await recordRejection(entry.id, why);
       return;
     }
     switch (ActionProposedByAgentLoop.read(json)) {
@@ -200,12 +203,15 @@ Future<void> runAirlockService({
           _ => null,
         };
         if (place == null) {
+          const why = 'place: not an int';
           say('${entry.id.hex}: proposal has no valid place');
+          await recordRejection(entry.id, why);
           return;
         }
         await trajectory.consider(proposal, place, proposed: entry.id);
       case Rejected(:final why):
         say('${entry.id.hex}: proposal unreadable: $why');
+        await recordRejection(entry.id, why);
     }
   }
 

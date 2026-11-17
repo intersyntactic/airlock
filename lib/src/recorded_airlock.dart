@@ -99,6 +99,19 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
         : ('result', _encodeResult(decision, result));
     await _record.send(kind, utf8.encode(body), previous: previous);
   }
+
+  /// Answers [proposed], a logbook entry this package never decided
+  /// because it did not read as a proposal at all, with [why]: the same
+  /// [resultOfActionOrWhyRefusedKind] shape [recordResult] writes for a
+  /// decided-and-refused action, so the loop waiting on it is answered
+  /// either way, never left waiting forever because nothing to decide was
+  /// ever found.
+  Future<void> recordRejection(EntryId proposed, String why) async {
+    await _record.send(
+      resultOfActionOrWhyRefusedKind,
+      utf8.encode(jsonEncode(proposalRejectedToJson(proposed, why))),
+    );
+  }
 }
 
 /// One journal line of body for [decision], human-readable: `is_logbook`'s

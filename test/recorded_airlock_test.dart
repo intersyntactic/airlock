@@ -272,4 +272,27 @@ void main() {
       expect(resultLine, isNot(contains('reads')));
     },
   );
+
+  test(
+    'recordRejection answers a proposal this package never decided, same '
+    'shape as a decided-and-refused result',
+    () async {
+      final a = airlock();
+      final proposedId = EntryId.of(utf8.encode('fake proposed'));
+
+      await a.recordRejection(proposedId, 'place: not an int');
+
+      final lines = _entries(harness.journalDir).map(utf8.decode).toList();
+      final resultLine = lines.firstWhere(
+        (l) => l.contains('"proposed":"${proposedId.hex}"'),
+      );
+      expect(resultLine, startsWith('$resultOfActionOrWhyRefusedKind\n'));
+      final body = jsonDecode(
+        resultLine.substring(resultLine.indexOf('{')),
+      );
+      final read = readResultOfActionOrWhyRefused(body);
+      expect(read, isNotNull);
+      expect(read!.proposed, proposedId);
+    },
+  );
 }

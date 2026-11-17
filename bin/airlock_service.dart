@@ -74,6 +74,7 @@ Future<void> main() async {
     ],
     proposalsEnabled: proposalsEnabled,
     recordIndex: recordIndex,
+    recordRejection: airlock.recordRejection,
     say: stderr.writeln,
   );
 }

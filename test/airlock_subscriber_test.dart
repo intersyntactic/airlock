@@ -182,6 +182,7 @@ void main() {
           drivers: const [],
           proposalsEnabled: true,
           recordIndex: recordIndex,
+          recordRejection: airlock.recordRejection,
           say: (_) {},
         ),
       );
@@ -223,6 +224,7 @@ void main() {
           drivers: const [],
           proposalsEnabled: false,
           recordIndex: recordIndex,
+          recordRejection: airlock.recordRejection,
           say: (_) {},
         ),
       );
