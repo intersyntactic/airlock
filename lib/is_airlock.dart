@@ -27,6 +27,8 @@ library;
 // that pin itself, with the two drifting apart if it ever changes here.
 export 'package:is_airlock_api/is_airlock_api.dart';
 export 'package:is_effects/is_effects.dart';
+export 'package:is_flight_rules/is_flight_rules.dart';
 
+export 'src/airlock_subscriber.dart';
 export 'src/record_client.dart';
 export 'src/recorded_airlock.dart';
