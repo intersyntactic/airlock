@@ -253,12 +253,11 @@ packages:
   is_web_driver:
     dependency: "direct main"
     description:
-      path: "."
-      ref: "2026bd8cef817da3b52d0a49d7951a37e2149a83"
-      resolved-ref: "2026bd8cef817da3b52d0a49d7951a37e2149a83"
-      url: "https://github.com/intersyntactic/web_driver.git"
-    source: git
-    version: "0.2.0"
+      name: is_web_driver
+      sha256: b4f74ed875eafce5c903b9533720d1efd579d04ee046f9a481765bb70be26b93
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.0"
   lints:
     dependency: "direct dev"
     description:

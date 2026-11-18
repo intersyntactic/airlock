@@ -16,11 +16,7 @@ dependencies:
   is_logbook: ^0.2.1
   checked_json: ^0.2.1
   is_logbook_client: ^0.2.0
-  is_web_driver:
-    git:
-      url: https://github.com/intersyntactic/web_driver.git
-      ref: 2026bd8cef817da3b52d0a49d7951a37e2149a83
-      # main, after PR #13 (is_effects 0.8.0) merged.
+  is_web_driver: ^0.3.0
   is_docking_station: ^0.1.0
   is_claude_code_driver:
     git:
