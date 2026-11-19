@@ -11,7 +11,8 @@
 ///   AIRLOCK_RECORD_SOCKET       the writer service's Unix socket
 ///   AIRLOCK_RECORD_READ_SOCKET  the writer service's read/subscribe socket
 ///   AIRLOCK_WEB_DRIVER_SOCKET   the web driver's Unix socket
-///   AIRLOCK_MODEL_DRIVER_SOCKET the model driver's Unix socket
+///   AIRLOCK_MODEL_DRIVER_SOCKETS a JSON object's path, sign-in name -> that
+///     sign-in's model driver's Unix socket
 ///   AIRLOCK_TEAMS_SIGN_IN       which sign-in posts a Teams reply or the
 ///                               trajectory-opened card (operational, not
 ///                               a build: infra's call which name CAM's
@@ -22,34 +23,31 @@
 ///                               user; unset or anything else means no
 ///                               `proposed` entry is acted on (task 20,
 ///                               Nick's call — flag only, no version check).
-///   AIRLOCK_WEB_DRIVER_USER,
-///   AIRLOCK_MODEL_DRIVER_USER  the user that driver's own process runs
-///                               as, by name or numeric uid, checked
-///                               against the kernel's own report of who
-///                               connects (`is_unix_socket_user_check`) —
-///                               required, not derived from the socket
-///                               file, which would trust whoever created
-///                               the file first rather than something
-///                               independent of the driver it checks.
-///   AIRLOCK_WEB_DRIVER_RELEASE,
-///   AIRLOCK_MODEL_DRIVER_RELEASE
-///                               optional: infra's own `<sha>-<digest>`
+///   AIRLOCK_WEB_DRIVER_USER     the web driver's own process's user, by
+///                               name or numeric uid, checked against the
+///                               kernel's own report of who connects
+///                               (`is_unix_socket_user_check`) — required,
+///                               not derived from the socket file, which
+///                               would trust whoever created the file
+///                               first rather than something independent
+///                               of the driver it checks. The routed model
+///                               drivers (AIRLOCK_MODEL_DRIVER_SOCKETS)
+///                               don't get this check yet — one user per
+///                               sign-in needs its own design.
+///   AIRLOCK_WEB_DRIVER_RELEASE  optional: infra's own `<sha>-<digest>`
 ///                               release id (`DriverRelease.parseExpected`)
-///                               for the release that driver's socket is
+///                               for the release the web driver's socket is
 ///                               expected to be running. Unset means no
-///                               release is checked for that driver — only
-///                               its user. Pinned exactly: changing a
-///                               driver's release means changing this var
-///                               in the same deploy, or the airlock
-///                               refuses every one of that driver's
-///                               requests until it does.
+///                               release is checked — only its user.
+///                               Pinned exactly: changing the web driver's
+///                               release means changing this var in the
+///                               same deploy, or the airlock refuses every
+///                               one of its requests until it does.
 library;
 
 import 'dart:io';
 
 import 'package:is_airlock/is_airlock.dart';
-import 'package:is_claude_code_driver/service.dart'
-    show ClaudeCodeDriverSocket;
 import 'package:is_logbook_client/is_logbook_client.dart' show LogbookReader;
 import 'package:is_teams_module/is_teams_module.dart'
     show TeamsRequestsAnsweringEvents;
@@ -60,50 +58,44 @@ Future<void> main() async {
   final recordSocket = Platform.environment['AIRLOCK_RECORD_SOCKET'];
   final readSocket = Platform.environment['AIRLOCK_RECORD_READ_SOCKET'];
   final webDriverSocket = Platform.environment['AIRLOCK_WEB_DRIVER_SOCKET'];
-  final modelDriverSocket =
-      Platform.environment['AIRLOCK_MODEL_DRIVER_SOCKET'];
+  final modelDriverSockets =
+      Platform.environment['AIRLOCK_MODEL_DRIVER_SOCKETS'];
   final teamsSignInName = Platform.environment['AIRLOCK_TEAMS_SIGN_IN'];
   final webDriverUserName = Platform.environment['AIRLOCK_WEB_DRIVER_USER'];
-  final modelDriverUserName =
-      Platform.environment['AIRLOCK_MODEL_DRIVER_USER'];
   if (recordSocket == null ||
       readSocket == null ||
       webDriverSocket == null ||
-      modelDriverSocket == null ||
+      modelDriverSockets == null ||
       teamsSignInName == null ||
-      webDriverUserName == null ||
-      modelDriverUserName == null) {
+      webDriverUserName == null) {
     stderr.writeln(
       'airlock service: set AIRLOCK_RECORD_SOCKET, '
       'AIRLOCK_RECORD_READ_SOCKET, AIRLOCK_WEB_DRIVER_SOCKET, '
-      'AIRLOCK_MODEL_DRIVER_SOCKET, AIRLOCK_TEAMS_SIGN_IN, '
-      'AIRLOCK_WEB_DRIVER_USER and AIRLOCK_MODEL_DRIVER_USER',
+      'AIRLOCK_MODEL_DRIVER_SOCKETS, AIRLOCK_TEAMS_SIGN_IN and '
+      'AIRLOCK_WEB_DRIVER_USER',
     );
     exitCode = 64;
     return;
   }
-  // A restart cannot fix a bad uid or release id either, so every one of
+  // A restart cannot fix a bad user or release id either, so every one of
   // these failures ends the same way as the block above: systemd's own
   // unit file stops restart-looping on exit 64 specifically
   // (RestartPreventExitStatus=64), never on an uncaught exception's exit.
   final webDriverUser = userNamedBy(webDriverUserName);
-  final modelDriverUser = userNamedBy(modelDriverUserName);
-  if (webDriverUser == null || modelDriverUser == null) {
+  if (webDriverUser == null) {
     stderr.writeln(
-      'airlock service: AIRLOCK_WEB_DRIVER_USER and '
-      'AIRLOCK_MODEL_DRIVER_USER must each name a real user, by name or '
-      'id — not unset, not the kernel\'s overflow uid or nobody',
+      'airlock service: AIRLOCK_WEB_DRIVER_USER must name a real user, '
+      'by name or id — not unset, not the kernel\'s overflow uid or '
+      'nobody',
     );
     exitCode = 64;
     return;
   }
   final webDriverRelease = _expectedRelease('AIRLOCK_WEB_DRIVER_RELEASE');
-  final modelDriverRelease = _expectedRelease('AIRLOCK_MODEL_DRIVER_RELEASE');
-  if (!webDriverRelease.ok || !modelDriverRelease.ok) {
+  if (!webDriverRelease.ok) {
     stderr.writeln(
-      'airlock service: AIRLOCK_WEB_DRIVER_RELEASE and '
-      'AIRLOCK_MODEL_DRIVER_RELEASE, when set, must be a release id '
-      '("<sha>-<digest>")',
+      'airlock service: AIRLOCK_WEB_DRIVER_RELEASE, when set, must be a '
+      'release id ("<sha>-<digest>")',
     );
     exitCode = 64;
     return;
@@ -111,6 +103,9 @@ Future<void> main() async {
   final teamsSignIn =
       SignIn.parse(teamsSignInName) ??
       (throw StateError('AIRLOCK_TEAMS_SIGN_IN: not a sign-in name'));
+  final modelDriver = RoutesModelCallsBySignIn.fromSocketsFile(
+    File(modelDriverSockets).readAsStringSync(),
+  );
 
   final recordIndex = RecordIndex();
   final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
@@ -147,13 +142,7 @@ Future<void> main() async {
           expected: webDriverRelease.release,
         ),
       ),
-      ClaudeCodeDriverSocket(
-        File(modelDriverSocket),
-        checkDriver: checkDriverRelease(
-          expectedUser: modelDriverUser,
-          expected: modelDriverRelease.release,
-        ),
-      ),
+      modelDriver,
     ],
     proposalsEnabled: proposalsEnabled,
     recordIndex: recordIndex,
