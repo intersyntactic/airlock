@@ -23,6 +23,10 @@ final class _FakeFileDriver implements ReadsAndWritesFiles {
       const Ran(ReadMissing());
 
   @override
+  Future<Outcome<BytesReadResult>> readBytes(RelativePath path) async =>
+      const Ran(ReadMissing());
+
+  @override
   Future<Outcome<Wrote>> write(FileText file) async =>
       const Ran(Wrote(replaced: false));
 }
@@ -80,14 +84,25 @@ void main() {
 
   /// What a [Projection.teamsMessageFromModelReply] web request draws its
   /// body from: a fixed `outcome-of-proposed-action` entry whose
-  /// result ran to [modelReplyText], so every such request's
-  /// [MakeWebRequest] check passes regardless of which entry it names —
-  /// good enough for these tests, which care about the decision/result
-  /// lines, not about proving a real chain.
+  /// result ran to [modelReplyText], answering a fixed
+  /// `action-proposed-by-agent-loop` entry that asked the model, so every
+  /// such request's [MakeWebRequest] check passes regardless of which entry
+  /// it names — good enough for these tests, which care about the
+  /// decision/result lines, not about proving a real chain.
   const modelReplyText = 'a reply';
+  final modelProposalId = EntryId.of(utf8.encode('fake model proposal'));
   final resultBody = jsonEncode({
-    'proposed': EntryId.of(utf8.encode('fake proposed')).hex,
+    'proposed': modelProposalId.hex,
     'result': {'kind': 'ran', 'output': modelReplyText},
+  });
+  final modelProposalBody = jsonEncode({
+    'program': 'model',
+    'place': [0, 0],
+    'input': {
+      'signIn': 'cam-teams',
+      'model': 'claude',
+      'request': EntryId.of(utf8.encode('fake model request')).hex,
+    },
   });
   final teamsMessageBody = jsonEncode({
     'type': 'message',
@@ -95,12 +110,13 @@ void main() {
   });
 
   RecordedAirlock<String, int> airlock({
-    Decision Function(Reach reach, String rules)? decide,
+    Decision Function(TrajectoryId trajectory, Reach reach, String rules)? decide,
   }) => RecordedAirlock<String, int>(
     RecordClient(harness.socketPath),
-    decide: decide ?? (reach, rules) => const Allow(by: DecidedBy.rules),
-    recordedOn: (trajectory, entry) async =>
-        Ran((kind: outcomeOfProposedActionKind, body: resultBody)),
+    decide: decide ?? (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
+    recordedOn: (trajectory, entry) async => entry == modelProposalId
+        ? Ran((kind: ActionProposedByAgentLoop.kind, body: modelProposalBody))
+        : Ran((kind: outcomeOfProposedActionKind, body: resultBody)),
     placeToJson: (place) => place,
   );
 
@@ -126,13 +142,17 @@ void main() {
   test('decide delegates to the rules given to it', () async {
     var decided = false;
     final a = airlock(
-      decide: (reach, rules) {
+      decide: (trajectory, reach, rules) {
         decided = true;
         return const Deny('no', by: DecidedBy.person);
       },
     );
 
-    final decision = await a.decide(Reads(RelativePath.root), 'rules');
+    final decision = await a.decide(
+      _id('conv-1'),
+      Reads(RelativePath.root),
+      'rules',
+    );
     expect(decision, isA<Deny>());
     expect(decided, isTrue);
   });
@@ -160,7 +180,8 @@ void main() {
       final origin = Origin.parse('https://smba.trafficmanager.net')!;
       final allowed = airlock();
       final denied = airlock(
-        decide: (reach, rules) => const Deny('no sign-in', by: DecidedBy.rules),
+        decide: (trajectory, reach, rules) =>
+            const Deny('no sign-in', by: DecidedBy.rules),
       );
 
       Action<Object?> send(SignIn? signIn) =>
@@ -254,7 +275,11 @@ void main() {
       final proposedId = EntryId.of(utf8.encode('fake proposed'));
 
       final received = ActionProposedByAgentLoop.read(
-        jsonEncode({'program': 'read', 'place': 1, 'input': ''}),
+        jsonEncode({
+          'program': 'read',
+          'place': [0, 1],
+          'input': '',
+        }),
       );
       final proposal = received as ActionProposedByAgentLoop;
       await trajectory.consider(proposal, 1, proposed: proposedId);

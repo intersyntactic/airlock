@@ -29,7 +29,7 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   });
 
   final RecordClient _record;
-  final Decision Function(Reach reach, R rules) _decide;
+  final Decision Function(TrajectoryId trajectory, Reach reach, R rules) _decide;
   final Future<Outcome<({String kind, String body})>> Function(
     TrajectoryId trajectory,
     EntryId entry,
@@ -44,7 +44,8 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   final _decisionHash = <AirlockDecisionOnAction<P>, ObjectId>{};
 
   @override
-  Future<Decision> decide(Reach reach, R rules) async => _decide(reach, rules);
+  Future<Decision> decide(TrajectoryId trajectory, Reach reach, R rules) async =>
+      _decide(trajectory, reach, rules);
 
   @override
   Future<Outcome<({String kind, String body})>> recordedOn(

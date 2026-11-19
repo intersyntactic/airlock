@@ -218,11 +218,11 @@ void main() {
       final proposedId = await _propose(LogbookWriter(harness.socketPath));
 
       final recordIndex = RecordIndex();
-      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
+      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
         RecordClient(harness.socketPath),
-        decide: (reach, rules) => const Allow(by: DecidedBy.rules),
+        decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
         recordedOn: recordIndex.recordedOn,
-        placeToJson: (place) => place,
+        placeToJson: (place) => place.toJson(),
       );
 
       unawaited(
@@ -257,11 +257,11 @@ void main() {
       final proposedId = await _propose(LogbookWriter(harness.socketPath));
 
       final recordIndex = RecordIndex();
-      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
+      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
         RecordClient(harness.socketPath),
-        decide: (reach, rules) => const Allow(by: DecidedBy.rules),
+        decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
         recordedOn: recordIndex.recordedOn,
-        placeToJson: (place) => place,
+        placeToJson: (place) => place.toJson(),
       );
 
       unawaited(
@@ -338,11 +338,11 @@ void main() {
       final proposedId = EntryId.of(proposed.recorded);
 
       final recordIndex = RecordIndex();
-      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
+      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
         RecordClient(harness.socketPath),
-        decide: (reach, rules) => const Allow(by: DecidedBy.rules),
+        decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
         recordedOn: recordIndex.recordedOn,
-        placeToJson: (place) => place,
+        placeToJson: (place) => place.toJson(),
       );
 
       unawaited(
@@ -396,11 +396,11 @@ void main() {
       );
 
       final recordIndex = RecordIndex();
-      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
+      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
         RecordClient(harness.socketPath),
-        decide: (reach, rules) => const Allow(by: DecidedBy.rules),
+        decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
         recordedOn: recordIndex.recordedOn,
-        placeToJson: (place) => place,
+        placeToJson: (place) => place.toJson(),
       );
 
       // The one fake, malformed entry first, then the real subscription —

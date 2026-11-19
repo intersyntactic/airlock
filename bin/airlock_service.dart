@@ -49,11 +49,11 @@ Future<void> main() async {
   }
 
   final recordIndex = RecordIndex();
-  final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
+  final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
     RecordClient(recordSocket),
     decide: _decide,
     recordedOn: recordIndex.recordedOn,
-    placeToJson: (place) => place,
+    placeToJson: (place) => place.toJson(),
   );
 
   final proposalsEnabled = switch (
@@ -84,7 +84,11 @@ Future<void> main() async {
 /// Files, writes and programs carry nothing off this machine by
 /// themselves, so none needs a rule here (`WhatMayLeaveThisMachine`'s own
 /// doc comment); only a web request or a model call does.
-Decision _decide(Reach reach, WhatMayLeaveThisMachine rules) => switch (reach) {
+Decision _decide(
+  TrajectoryId trajectory,
+  Reach reach,
+  WhatMayLeaveThisMachine rules,
+) => switch (reach) {
   Reads() || Writes() || Starts() => const Allow(by: DecidedBy.rules),
   MakesWebRequest(:final request) => rules.allowsWebRequest(
     request.origin,

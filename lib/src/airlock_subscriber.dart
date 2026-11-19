@@ -52,12 +52,6 @@ final _resultKind = Kind.parse(outcomeOfProposedActionKind)!;
 /// is_airlock_api's own type, not is_logbook's — equal in value, never in
 /// type.
 
-/// This trajectory's place in a turn, for now: the proposing loop and this
-/// service are the only two sides that read it, and neither exists yet
-/// (Nov 17), so there is no established shape to match. Picked to agree
-/// with this repo's own tests, not with anything upstream.
-typedef Place = int;
-
 /// `users-assigned-to-trajectory`'s body: logbook-07 confirmed the shape,
 /// fixed by the record and refused in any other (loop_launcher's task 16
 /// is to hold this type for both sides so neither keeps a copy; written to
@@ -138,7 +132,8 @@ final class _Buffered {
 /// chain ownership is confirmed live (infra-5e's `AIRLOCK_PROPOSALS_ENABLED`).
 Future<void> runAirlockService({
   required Stream<Subscribed> Function() subscribe,
-  required DecidesAndRecordsActions<WhatMayLeaveThisMachine, Place> airlock,
+  required DecidesAndRecordsActions<WhatMayLeaveThisMachine, PlaceInTrajectory>
+  airlock,
   required Iterable<CarriesOutActions> drivers,
   required bool proposalsEnabled,
   required RecordIndex recordIndex,
@@ -149,12 +144,12 @@ Future<void> runAirlockService({
   final rulesOf = <TrajectoryId, WhatMayLeaveThisMachine>{};
   final suitOf = <TrajectoryId, Suit>{};
   final trajectories =
-      <TrajectoryId, Trajectory<WhatMayLeaveThisMachine, Place>>{};
+      <TrajectoryId, Trajectory<WhatMayLeaveThisMachine, PlaceInTrajectory>>{};
   final answered = <EntryId>{};
   final buffered = <_Buffered>[];
   var caughtUp = false;
 
-  Trajectory<WhatMayLeaveThisMachine, Place>? build(TrajectoryId id) {
+  Trajectory<WhatMayLeaveThisMachine, PlaceInTrajectory>? build(TrajectoryId id) {
     final existing = trajectories[id];
     if (existing != null) return existing;
     final rules = rulesOf[id];
@@ -192,17 +187,7 @@ Future<void> runAirlockService({
     }
     switch (ActionProposedByAgentLoop.read(utf8.decode(entry.body))) {
       case final ActionProposedByAgentLoop proposal:
-        final place = switch (proposal.place) {
-          final int place => place,
-          _ => null,
-        };
-        if (place == null) {
-          const why = 'place: not an int';
-          say('${entry.id.hex}: proposal has no valid place');
-          await recordRejection(entry.id, why);
-          return;
-        }
-        await trajectory.consider(proposal, place, proposed: entry.id);
+        await trajectory.consider(proposal, proposal.place, proposed: entry.id);
       case Rejected(:final why):
         say('${entry.id.hex}: proposal unreadable: $why');
         await recordRejection(entry.id, why);

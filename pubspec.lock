@@ -157,10 +157,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_airlock_api
-      sha256: f87f956919110966bd4714077c52876e72db2f3a533ea2ea7eb7ab10023958d0
+      sha256: "2620b63823b246322d38dcbcb778a8589a5ebc242e457a872660d4a3d09f640d"
       url: "https://pub.dev"
     source: hosted
-    version: "0.11.0"
+    version: "0.12.1"
   is_annotation_shapes:
     dependency: transitive
     description:
@@ -173,10 +173,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_claude_code_driver
-      sha256: cac23485470643c7fc5ab560079b47a4c739d436ed68442534c72120a0b218f4
+      sha256: a7d641443e840c1fc26b029e0edd0ddf315cb83d7416c1fd880f1d1bcc2e5bb3
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.0"
+    version: "0.3.1"
   is_content_id:
     dependency: transitive
     description:
@@ -205,18 +205,18 @@ packages:
     dependency: "direct main"
     description:
       name: is_effects
-      sha256: e1973020e8bd79d4b9f9185171fb7f623c3de3e82fc72d5f9e71e08ec32064ca
+      sha256: bb3936fec38b2adc0aa4df95a822c444183528a44d85f2501bc019ffb8cf7d43
       url: "https://pub.dev"
     source: hosted
-    version: "0.9.0"
+    version: "0.11.0"
   is_flight_rules:
     dependency: "direct main"
     description:
       name: is_flight_rules
-      sha256: "3bc697f7f12d4b43f50f5bb6a40def1c216bd81c04736afffc555dc68fdf4fd3"
+      sha256: "5a0a7b582ca8d2b0b9aeee381892c9e1000d3f94163b0cab20507b56bbd79afc"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.2"
+    version: "0.2.0"
   is_logbook:
     dependency: "direct main"
     description:
@@ -253,10 +253,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_web_request_driver
-      sha256: "3502695c5d677d01994e29b9d94c53c9ba5635e90a740b8eed4718aebd47ac99"
+      sha256: "2cf7866975fce0d990c7c8c414c27f8d1137faf1a0638d6afb3c4429594fa5e1"
       url: "https://pub.dev"
     source: hosted
-    version: "0.4.1"
+    version: "0.5.0"
   lints:
     dependency: "direct dev"
     description:
