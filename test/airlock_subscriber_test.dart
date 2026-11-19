@@ -170,7 +170,7 @@ Future<({EntryId proposed, Object? result})?> _awaitAnswer(
       final body = text.substring(
         text.indexOf('\n', outcomeOfProposedActionKind.length + 1) + 1,
       );
-      final decoded = readOutcomeOfProposedAction(jsonDecode(body));
+      final decoded = readOutcomeOfProposedAction(body);
       if (decoded != null && decoded.proposed.hex == proposedId.hex) {
         return decoded;
       }

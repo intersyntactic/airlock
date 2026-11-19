@@ -32,10 +32,10 @@ final class _FakeFileDriver implements ReadsAndWritesFiles {
 final class _FakeWebDriver implements CarriesOutWebRequests {
   _FakeWebDriver(this.onSend);
 
-  final Outcome<WebRequestOutcome> Function(Request request) onSend;
+  final Outcome<WebResponse> Function(Request request) onSend;
 
   @override
-  Future<Outcome<WebRequestOutcome>> carryOutWebRequest(
+  Future<Outcome<WebResponse>> carryOutWebRequest(
     Request request,
   ) async => onSend(request);
 }
@@ -111,7 +111,7 @@ void main() {
   Trajectory<String, int> path(
     RecordedAirlock<String, int> a, {
     String rules = 'rules',
-    Outcome<WebRequestOutcome> Function(Request request)? onSend,
+    Outcome<WebResponse> Function(Request request)? onSend,
   }) => Trajectory<String, int>(
     id: _id('conv-1'),
     drivers: [
@@ -164,7 +164,7 @@ void main() {
       );
 
       Action<Object?> send(SignIn? signIn) =>
-          Program.web.run<Outcome<WebRequestOutcome>>(
+          Program.web.run<Outcome<WebResponse>>(
             WebRequest(
               origin,
               body: teamsMessageBody,
@@ -178,7 +178,7 @@ void main() {
       await send(SignIn.parse('cam-teams')).next(
         path(
           allowed,
-          onSend: (r) => const Ran(WebRequestOutcome(status: 201)),
+          onSend: (r) => const Ran(WebResponse(status: 201)),
         ).at(1),
       );
       await send(null).next(path(denied).at(2));
@@ -202,7 +202,7 @@ void main() {
       final origin = Origin.parse('https://smba.trafficmanager.net')!;
       final a = airlock();
 
-      Action<Object?> send() => Program.web.run<Outcome<WebRequestOutcome>>(
+      Action<Object?> send() => Program.web.run<Outcome<WebResponse>>(
         WebRequest(
           origin,
           body: teamsMessageBody,
@@ -217,17 +217,17 @@ void main() {
         path(
           a,
           onSend: (r) =>
-              const Ran(WebRequestOutcome(status: 201, created: 'abc-123')),
+              const Ran(WebResponse(status: 201, created: 'abc-123')),
         ).at(1),
       );
       await send().next(
-        path(a, onSend: (r) => const Ran(WebRequestOutcome(status: 201))).at(2),
+        path(a, onSend: (r) => const Ran(WebResponse(status: 201))).at(2),
       );
       await send().next(
         path(
           a,
           onSend: (r) => const Ran(
-            WebRequestOutcome(status: 400, refusedBecause: 'error.code'),
+            WebResponse(status: 400, refusedBecause: 'error.code'),
           ),
         ).at(3),
       );
@@ -253,11 +253,9 @@ void main() {
       final trajectory = path(a);
       final proposedId = EntryId.of(utf8.encode('fake proposed'));
 
-      final received = ActionProposedByAgentLoop.read({
-        'program': 'read',
-        'place': 1,
-        'input': '',
-      });
+      final received = ActionProposedByAgentLoop.read(
+        jsonEncode({'program': 'read', 'place': 1, 'input': ''}),
+      );
       final proposal = received as ActionProposedByAgentLoop;
       await trajectory.consider(proposal, 1, proposed: proposedId);
 
@@ -284,9 +282,7 @@ void main() {
         (l) => l.contains('"proposed":"${proposedId.hex}"'),
       );
       expect(resultLine, startsWith('$outcomeOfProposedActionKind\n'));
-      final body = jsonDecode(
-        resultLine.substring(resultLine.indexOf('{')),
-      );
+      final body = resultLine.substring(resultLine.indexOf('{'));
       final read = readOutcomeOfProposedAction(body);
       expect(read, isNotNull);
       expect(read!.proposed, proposedId);

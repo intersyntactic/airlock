@@ -26,7 +26,8 @@ import 'package:is_airlock/is_airlock.dart';
 import 'package:is_claude_code_driver/service.dart'
     show ClaudeCodeDriverSocket;
 import 'package:is_logbook_client/is_logbook_client.dart' show LogbookReader;
-import 'package:is_web_driver/service.dart' show WebDriverSocket;
+import 'package:is_web_request_driver/service.dart'
+    show WebRequestDriverSocket;
 
 Future<void> main() async {
   final recordSocket = Platform.environment['AIRLOCK_RECORD_SOCKET'];
@@ -69,7 +70,7 @@ Future<void> main() async {
     subscribe: () => LogbookReader(readSocket).subscribe(),
     airlock: airlock,
     drivers: [
-      WebDriverSocket(File(webDriverSocket)),
+      WebRequestDriverSocket(File(webDriverSocket)),
       ClaudeCodeDriverSocket(File(modelDriverSocket)),
     ],
     proposalsEnabled: proposalsEnabled,

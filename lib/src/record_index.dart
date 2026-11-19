@@ -13,8 +13,6 @@
 /// second round trip to the service.
 library;
 
-import 'dart:convert';
-
 import 'package:is_airlock_api/is_airlock_api.dart'
     show
         EntryId,
@@ -74,7 +72,7 @@ final class RecordIndex {
   /// [trajectory]'s chain.
   bool _resultBelongsTo(_Indexed indexed, TrajectoryId trajectory) {
     if (indexed.kind != outcomeOfProposedActionKind) return false;
-    final read = readOutcomeOfProposedAction(_jsonOrNull(indexed.body));
+    final read = readOutcomeOfProposedAction(indexed.body);
     if (read == null) return false;
     return _byId[read.proposed.hex]?.trajectory == trajectory;
   }
@@ -94,13 +92,5 @@ final class RecordIndex {
       return Ran((kind: indexed.kind, body: indexed.body));
     }
     return Refused('${entry.hex} is on another chain');
-  }
-}
-
-Object? _jsonOrNull(String text) {
-  try {
-    return jsonDecode(text);
-  } on FormatException {
-    return null;
   }
 }

@@ -21,7 +21,6 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:checked_json/checked_json.dart';
 import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_docking_station/src/path_start.dart'
     show
@@ -191,16 +190,7 @@ Future<void> runAirlockService({
       await recordRejection(entry.id, why);
       return;
     }
-    final Object? json;
-    try {
-      json = jsonDecode(utf8.decode(entry.body));
-    } on FormatException catch (e) {
-      final why = 'proposal is not JSON: ${e.message}';
-      say('${entry.id.hex}: $why');
-      await recordRejection(entry.id, why);
-      return;
-    }
-    switch (ActionProposedByAgentLoop.read(json)) {
+    switch (ActionProposedByAgentLoop.read(utf8.decode(entry.body))) {
       case final ActionProposedByAgentLoop proposal:
         final place = switch (proposal.place) {
           final int place => place,
@@ -285,13 +275,7 @@ Future<void> runAirlockService({
         build(assigned.trajectory);
 
       case Entry(:final kind, :final body) when kind == _resultKind:
-        final Object? json;
-        try {
-          json = jsonDecode(utf8.decode(body));
-        } on FormatException {
-          break;
-        }
-        final read = readOutcomeOfProposedAction(json);
+        final read = readOutcomeOfProposedAction(utf8.decode(body));
         // Not every result entry answers a proposal (an action proposed
         // in-process, with no loop waiting, has none); only ones that do
         // tell us a proposal is already answered.

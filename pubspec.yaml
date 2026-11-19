@@ -10,18 +10,15 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
-  is_airlock_api: ^0.10.1
-  is_effects: ^0.8.0
-  is_flight_rules: ^0.1.1
+  is_airlock_api: ^0.11.0
+  is_effects: ^0.9.0
+  is_flight_rules: ^0.1.2
   is_logbook: ^0.2.1
   checked_json: ^0.2.1
   is_logbook_client: ^0.2.0
-  is_web_driver: ^0.3.0
+  is_web_request_driver: ^0.4.1
   is_docking_station: ^0.1.0
-  is_claude_code_driver:
-    git:
-      url: https://github.com/intersyntactic/claude_code_driver.git
-      ref: b2f844cdbb5d8ea346af7bff1427fc093ae357af
+  is_claude_code_driver: ^0.3.0
 
 dev_dependencies:
   analyzer: ^14.7.0
