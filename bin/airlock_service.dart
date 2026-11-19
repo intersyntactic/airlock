@@ -1,74 +1,102 @@
-/// The airlock as its own service: a relay client (the Teams relay) that
-/// cannot reach `is_journal`'s one writer service itself connects here
-/// instead, and has its arrivals witnessed.
+/// The airlock as its own service: subscribes to the record, builds a
+/// [Trajectory] per path from its `event-admitted-to-mission` and
+/// `users-assigned-to-trajectory` entries, and reacts to each `proposed`
+/// entry on a trajectory's own chain.
 ///
-/// This binary holds no journal of its own: it is one of the writer
-/// service's senders, over [RecordClient]. No code hash, no compiled-build
-/// define — that concern belongs entirely to the writer service's own
-/// build now.
+/// "The airlock has no door of its own" (is_airlock_api 0.7.1): there is no
+/// listener here for a loop to dial. A loop only ever proposes through the
+/// record.
 ///
 /// Environment:
-///   AIRLOCK_RECORD_SOCKET  the writer service's Unix socket
-///                          (`is_journal`'s `JOURNAL_SOCKET`)
-///   AIRLOCK_SOCKET_PATH    the Unix socket this service itself serves
-///                          relay clients on (removed first if a stale
-///                          one is there)
-///   AIRLOCK_SOCKET_MODE    this service's own socket's permission bits,
-///                          as `chmod` takes them; default `600` (owner
-///                          only). The socket's group is whatever group
-///                          this process runs as; a client in a
-///                          different user grants itself access via a
-///                          supplementary group (systemd
-///                          `SupplementaryGroups=`), not a directory
-///                          setting.
+///   AIRLOCK_RECORD_SOCKET       the writer service's Unix socket
+///   AIRLOCK_RECORD_READ_SOCKET  the writer service's read/subscribe socket
+///   AIRLOCK_WEB_DRIVER_SOCKET   the web driver's Unix socket
+///   AIRLOCK_MODEL_DRIVER_SOCKET the model driver's Unix socket
+///   AIRLOCK_PROPOSALS_ENABLED   `1` or `true` once infra-5e has confirmed
+///                               the record enforces that a trajectory's
+///                               chain takes entries only from its own loop
+///                               user; unset or anything else means no
+///                               `proposed` entry is acted on (task 20,
+///                               Nick's call — flag only, no version check).
 library;
 
-import 'dart:async';
 import 'dart:io';
 
-import 'package:is_airlock/src/record_client.dart';
-import 'package:is_airlock/src/recorded_airlock.dart';
-import 'package:is_airlock/src/witness_service.dart';
+import 'package:is_airlock/is_airlock.dart';
+import 'package:is_claude_code_driver/service.dart'
+    show ClaudeCodeDriverSocket;
+import 'package:is_logbook_client/is_logbook_client.dart' show LogbookReader;
+import 'package:is_web_request_driver/service.dart'
+    show WebRequestDriverSocket;
 
 Future<void> main() async {
   final recordSocket = Platform.environment['AIRLOCK_RECORD_SOCKET'];
-  final socketPath = Platform.environment['AIRLOCK_SOCKET_PATH'];
-  if (recordSocket == null || socketPath == null) {
+  final readSocket = Platform.environment['AIRLOCK_RECORD_READ_SOCKET'];
+  final webDriverSocket = Platform.environment['AIRLOCK_WEB_DRIVER_SOCKET'];
+  final modelDriverSocket =
+      Platform.environment['AIRLOCK_MODEL_DRIVER_SOCKET'];
+  if (recordSocket == null ||
+      readSocket == null ||
+      webDriverSocket == null ||
+      modelDriverSocket == null) {
     stderr.writeln(
-      'airlock service: set AIRLOCK_RECORD_SOCKET and AIRLOCK_SOCKET_PATH',
+      'airlock service: set AIRLOCK_RECORD_SOCKET, '
+      'AIRLOCK_RECORD_READ_SOCKET, AIRLOCK_WEB_DRIVER_SOCKET and '
+      'AIRLOCK_MODEL_DRIVER_SOCKET',
     );
     exitCode = 64;
     return;
   }
 
-  final socketMode = Platform.environment['AIRLOCK_SOCKET_MODE'] ?? '600';
-  final socketFile = File(socketPath);
-  if (socketFile.existsSync()) socketFile.deleteSync();
-  final server = await ServerSocket.bind(
-    InternetAddress(socketPath, type: InternetAddressType.unix),
-    0,
+  final recordIndex = RecordIndex();
+  final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
+    RecordClient(recordSocket),
+    decide: _decide,
+    recordedOn: recordIndex.recordedOn,
+    placeToJson: (place) => place,
   );
-  await Process.run('chmod', [socketMode, socketPath]);
-  stderr.writeln('airlock service: witnessing on $socketPath');
 
-  final stopping = Completer<void>();
-  final signals = [
-    for (final signal in [ProcessSignal.sigterm, ProcessSignal.sigint])
-      signal.watch().listen((_) {
-        if (!stopping.isCompleted) stopping.complete();
-      }),
-  ];
-
-  await WitnessService(Witness(RecordClient(recordSocket)))
-      .serve(server, stop: stopping.future);
-
-  // A signal's watch() stream has no natural end, so main() returning
-  // would leave the VM with listeners still pending, never actually
-  // exiting the process the signal was meant to stop.
-  for (final s in signals) {
-    await s.cancel();
-  }
-  await server.close();
-  if (socketFile.existsSync()) socketFile.deleteSync();
-  stderr.writeln('airlock service: stopped');
+  final proposalsEnabled = switch (
+      // wire-ok: an environment variable, a boundary string
+      Platform.environment['AIRLOCK_PROPOSALS_ENABLED']?.toLowerCase()) {
+    '1' || 'true' => true,
+    _ => false,
+  };
+  stderr.writeln(
+    'airlock service: subscribing to $readSocket '
+    '(proposals ${proposalsEnabled ? 'enabled' : 'disabled'})',
+  );
+  await runAirlockService(
+    subscribe: () => LogbookReader(readSocket).subscribe(),
+    airlock: airlock,
+    drivers: [
+      WebRequestDriverSocket(File(webDriverSocket)),
+      ClaudeCodeDriverSocket(File(modelDriverSocket)),
+    ],
+    proposalsEnabled: proposalsEnabled,
+    recordIndex: recordIndex,
+    recordRejection: airlock.recordRejection,
+    writeLogbookEntry: airlock.writeLogbookEntry,
+    say: stderr.writeln,
+  );
 }
+
+/// Files, writes and programs carry nothing off this machine by
+/// themselves, so none needs a rule here (`WhatMayLeaveThisMachine`'s own
+/// doc comment); only a web request or a model call does.
+Decision _decide(Reach reach, WhatMayLeaveThisMachine rules) => switch (reach) {
+  Reads() || Writes() || Starts() => const Allow(by: DecidedBy.rules),
+  MakesWebRequest(:final request) => rules.allowsWebRequest(
+    request.origin,
+    request.signIn,
+  )
+      ? const Allow(by: DecidedBy.rules)
+      : Deny(
+          'not granted: ${request.origin} as '
+          '${request.signIn ?? 'no sign-in'}',
+          by: DecidedBy.rules,
+        ),
+  CallsTheModel(:final signIn) => rules.allowsModelCall(signIn)
+      ? const Allow(by: DecidedBy.rules)
+      : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
+};

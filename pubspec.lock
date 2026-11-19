@@ -10,7 +10,7 @@ packages:
     source: hosted
     version: "111.0.0"
   analyzer:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: analyzer
       sha256: "6c39bd5486a310e56217bed7cb1691377959f31be4227e41750107db7e6dd55c"
@@ -157,10 +157,26 @@ packages:
     dependency: "direct main"
     description:
       name: is_airlock_api
-      sha256: "54ef7eb232186f01069fbe840171382ad988a2f0e139dd2a79761b5e2d05db47"
+      sha256: f87f956919110966bd4714077c52876e72db2f3a533ea2ea7eb7ab10023958d0
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.1"
+    version: "0.11.0"
+  is_annotation_shapes:
+    dependency: transitive
+    description:
+      name: is_annotation_shapes
+      sha256: eaba8ab69040d0612d12bbec7315b567015d4369dd19c91c2b4dd14223c7a2f5
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.2"
+  is_claude_code_driver:
+    dependency: "direct main"
+    description:
+      name: is_claude_code_driver
+      sha256: cac23485470643c7fc5ab560079b47a4c739d436ed68442534c72120a0b218f4
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.0"
   is_content_id:
     dependency: transitive
     description:
@@ -169,30 +185,78 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.2.0"
+  is_conversation_shapes:
+    dependency: transitive
+    description:
+      name: is_conversation_shapes
+      sha256: "9cc49a7f1bf6ddb077a86516533b706b6c2ac08856b036a7cfcec67286ba09c1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.8.3"
+  is_docking_station:
+    dependency: "direct main"
+    description:
+      name: is_docking_station
+      sha256: "18d390a6bda5c6c6b88b38e455918424a053f1a163e89b455de7eeb80f52c3ba"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.0"
   is_effects:
     dependency: "direct main"
     description:
       name: is_effects
-      sha256: "8c5af555fc6d3461f4120c470d0199e66c15a23e5bbb3e5509b9fb5f4e5a0295"
+      sha256: e1973020e8bd79d4b9f9185171fb7f623c3de3e82fc72d5f9e71e08ec32064ca
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.9.0"
+  is_flight_rules:
+    dependency: "direct main"
+    description:
+      name: is_flight_rules
+      sha256: "3bc697f7f12d4b43f50f5bb6a40def1c216bd81c04736afffc555dc68fdf4fd3"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.2"
+  is_logbook:
+    dependency: "direct main"
+    description:
+      name: is_logbook
+      sha256: b1b848bb127e2453508dced234c298a95013a3fee56911cb98ddd750715b9e31
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.1"
+  is_logbook_client:
+    dependency: "direct main"
+    description:
+      name: is_logbook_client
+      sha256: "885f9e932fc058e8aa05cf75b3be3e48ca0618c1d9023586aec3e0c41ad31ce3"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.0"
+  is_path_confinement:
+    dependency: transitive
+    description:
+      name: is_path_confinement
+      sha256: b09d4b18aa39366b63497117be8adbd9f0cfb987a3eb2db437d053f3bc11ea45
       url: "https://pub.dev"
     source: hosted
     version: "0.1.0"
-  is_journal:
-    dependency: "direct main"
-    description:
-      name: is_journal
-      sha256: e662f4ceff4bbfced819526588c3d629559bc3e52afeea51fe7b691181b6c443
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.5.0"
   is_shapes:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: is_shapes
-      sha256: e67505aa1de76972b74ab0bbebaa536ad46883fcd0b80f669465caebe9dd5095
+      sha256: aa5d5f37840ab8a09517bcf7313418bdb6ffab2dea29b3ac06d2e95875f8c2e8
       url: "https://pub.dev"
     source: hosted
-    version: "0.4.3"
+    version: "0.6.0"
+  is_web_request_driver:
+    dependency: "direct main"
+    description:
+      name: is_web_request_driver
+      sha256: "3502695c5d677d01994e29b9d94c53c9ba5635e90a740b8eed4718aebd47ac99"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.4.1"
   lints:
     dependency: "direct dev"
     description:

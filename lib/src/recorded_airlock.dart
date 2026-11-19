@@ -1,109 +1,155 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_effects/is_effects.dart';
-import 'package:is_journal/is_journal.dart';
 
-import 'arrival_source.dart';
 import 'record_client.dart';
 
-/// Witnesses arrivals, sending each to `is_journal`'s one writer over a
-/// [RecordClient], needing no journey path's rules to do it.
-///
-/// What a run may do is a journey path's own business — [RecordedAirlock]
-/// adds that on top of this, for whoever has rules to bring. A caller with
-/// no run and no rules — just arrivals to witness — builds a [Witness]
-/// directly rather than inventing a policy it doesn't have.
-///
-/// Sending a prompt to a model is not here, and not the airlock's job at
-/// all: Nick's reshape (14 Nov) has the agent loop write each turn to the
-/// journal itself, and a model call's bytes recorded by whatever sends
-/// them (`claude -p`'s proxy, in `agent_loop`), not by this package.
-///
-/// Nor does this package hold a journal of its own any more (Nick's
-/// ruling, 15 Nov): `is_journal`'s one writer is the record's one writer,
-/// for every sender, and this is one of its senders, not another holder
-/// of the file.
-class Witness {
-  Witness(this._record);
-
-  final RecordClient _record;
-
-  /// Witnesses [bytes] arriving from [source], before anything reads them:
-  /// the airlock's own record of an arrival. `is_airlock_api` defines no
-  /// `Witnessed` entry at all, and never will: no tool is involved, so the
-  /// contract has nothing to guard.
-  ///
-  /// [bytes] is deliberately the only thing this takes about what arrived:
-  /// not a type the caller has already read fields out of. Whatever a
-  /// caller hands in here is what "exactly as it came" means, so a caller
-  /// that has already parsed its arrival should witness the bytes it
-  /// parsed from, not the fields it kept.
-  Future<EntryHash> witness(
-    Uint8List bytes, {
-    required ArrivalSource source,
-    DateTime? at,
-  }) => _record.send(
-    'witnessed',
-    utf8.encode(
-      jsonEncode({
-        'at': (at ?? DateTime.now().toUtc()).toIso8601String(),
-        'source': source.value,
-        'bytes': base64Encode(bytes),
-      }),
-    ),
-  );
-}
-
-/// An [Airlock] that sends what it decides and records to `is_journal`'s
-/// one writer, over the same [RecordClient] [Witness] sends arrivals to.
+/// A [DecidesAndRecordsActions] that sends what it decides and records to
+/// `is_logbook`'s one writer, over a [RecordClient].
 ///
 /// What a run may do under `R` is the app's rules, not this package's: a
-/// journey path's `R` is whatever its host defines, so [decide] is given
+/// trajectory's `R` is whatever its host defines, so [decide] is given
 /// as a function rather than a shape this package would have to guess at.
 /// `P`, the host's place-in-a-turn type, is never read here either: it is
 /// logged by whatever it prints as, same as everything else an entry
-/// carries.
-final class RecordedAirlock<R, P> extends Witness implements Airlock<R, P> {
-  RecordedAirlock(super._record, {required this._decide});
+/// carries, except for a web request's decision, whose wire shape needs it
+/// as JSON — [placeToJson] does that conversion, since this package does
+/// not know what `P` actually is.
+///
+/// [recordedOn] is given as a function too, for the same reason: following
+/// the record for what it holds is genuinely this package's to build (see
+/// lib/src/record_index.dart), but is not this type's own concern.
+final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
+  RecordedAirlock(
+    this._record, {
+    required this._decide,
+    required this._recordedOn,
+    required this._placeToJson,
+  });
 
-  final Decision Function(Run<Object?> run, R rules) _decide;
+  final RecordClient _record;
+  final Decision Function(Reach reach, R rules) _decide;
+  final Future<Outcome<({String kind, String body})>> Function(
+    TrajectoryId trajectory,
+    EntryId entry,
+  )
+  _recordedOn;
+  final Object? Function(P place) _placeToJson;
+
+  /// The logbook entry [recordDecision] wrote for a decision, so
+  /// [recordResult] can extend its chain without a second write naming it
+  /// by anything other than being the same object [Trajectory._consider]
+  /// passes to both calls in turn.
+  final _decisionHash = <AirlockDecisionOnAction<P>, ObjectId>{};
 
   @override
-  Future<Decision> decide(Run<Object?> run, R rules) async =>
-      _decide(run, rules);
+  Future<Decision> decide(Reach reach, R rules) async => _decide(reach, rules);
 
   @override
-  Future<void> record(Entry<P> entry) async {
-    final (kind, body) = _encode(entry);
-    await _record.send(kind, utf8.encode(body));
+  Future<Outcome<({String kind, String body})>> recordedOn(
+    TrajectoryId trajectory,
+    EntryId entry,
+  ) => _recordedOn(trajectory, entry);
+
+  /// Writes [decision] in whichever shape its reader actually needs.
+  ///
+  /// A [MakesWebRequest] decision gets [AirlockDecisionOnWebRequest]'s own
+  /// wire shape, under its own kind, since the exact request bytes it
+  /// carries are read back by this package itself (`MakeWebRequest._make`,
+  /// through [recordedOn]). Every other reach gets [_encode]'s human line
+  /// under [AirlockDecisionOnAction.kind]: `is_logbook`'s own design is that
+  /// nothing checks it as it runs, so a person reads it instead.
+  @override
+  Future<void> recordDecision(AirlockDecisionOnAction<P> decision) async {
+    final webRequest = AirlockDecisionOnWebRequest.of(decision, _placeToJson);
+    final (kind, body) = webRequest != null
+        ? (AirlockDecisionOnWebRequest.kind, jsonEncode(webRequest.toJson()))
+        : (AirlockDecisionOnAction.kind, _encodeDecision(decision));
+    _decisionHash[decision] = await _record.send(kind, utf8.encode(body));
+  }
+
+  /// Writes [result] extending [decision]'s chain.
+  ///
+  /// A result answering a proposal (Nick, 16 Nov 20:45: "what an action
+  /// returns is in the record, once") is [outcomeOfProposedActionToJson],
+  /// under [outcomeOfProposedActionKind]: the loop's `propose()` is
+  /// waiting to decode exactly that back, and a human line there would
+  /// leave it waiting forever instead of failing loudly. An action proposed
+  /// in this service's own process, with no loop waiting, still gets
+  /// [_encode]'s human line.
+  @override
+  Future<void> recordResult(
+    AirlockDecisionOnAction<P> decision,
+    Outcome<Object?> result, {
+    required Object? resultAsJson,
+  }) async {
+    final previous = _decisionHash.remove(decision);
+    if (previous == null) {
+      throw StateError(
+        '${decision.trajectoryId}: recordResult called before recordDecision',
+      );
+    }
+    final proposed = decision.proposed;
+    final (kind, body) = proposed != null
+        ? (
+            outcomeOfProposedActionKind,
+            jsonEncode(outcomeOfProposedActionToJson(proposed, resultAsJson)),
+          )
+        : ('result', _encodeResult(decision, result));
+    await _record.send(kind, utf8.encode(body), previous: previous);
+  }
+
+  /// Answers [proposed], a logbook entry this package never decided
+  /// because it did not read as a proposal at all, with [why]: the same
+  /// [outcomeOfProposedActionKind] shape [recordResult] writes for a
+  /// decided-and-refused action, so the loop waiting on it is answered
+  /// either way, never left waiting forever because nothing to decide was
+  /// ever found.
+  Future<void> recordRejection(EntryId proposed, String why) async {
+    await _record.send(
+      outcomeOfProposedActionKind,
+      utf8.encode(jsonEncode(proposalRejectedToJson(proposed, why))),
+    );
+  }
+
+  /// Records [line] under [skippedMalformedEntryKind], for a historical
+  /// entry [runAirlockService] skipped rather than crash-looping on: same
+  /// "nothing checks it as it runs, a person reads it" pattern as
+  /// [AirlockDecisionOnAction]'s own kind.
+  Future<void> writeLogbookEntry(String line) async {
+    await _record.send(skippedMalformedEntryKind, utf8.encode(line));
   }
 }
 
-/// The writer-service kind, and one journal line of body, for [entry].
-/// Human-readable, per `is_journal`'s own design ("nothing checks it as it
-/// runs, so a person reads it instead"), and, like the Teams relay's own
-/// log line, the reason a run was decided or what became of it, never a
-/// copy of what it carried: no file text, no program output.
-(String, String) _encode<P>(Entry<P> entry) => switch (entry) {
-  Decided(:final journeyPathId, :final place, :final run, :final decision) => (
-    'decided',
-    '$journeyPathId@$place ${_reach(run.reach)} -> ${_decision(decision)}',
-  ),
-  Returned(:final journeyPathId, :final place, :final run, :final outcome) => (
-    'returned',
-    '$journeyPathId@$place ${_reach(run.reach)} -> ${_outcome(outcome)}',
-  ),
-};
+/// A historical entry [runAirlockService] skipped instead of crashing on,
+/// so systemd's restart-and-replay does not die on the same entry forever
+/// (Nick's name, 18 Nov).
+const skippedMalformedEntryKind = 'skipped-malformed-entry';
+
+/// One journal line of body for [decision], human-readable: `is_logbook`'s
+/// own design ("nothing checks it as it runs, so a person reads it
+/// instead"), never a copy of what it carried.
+String _encodeDecision<P>(AirlockDecisionOnAction<P> decision) =>
+    '${decision.trajectoryId}@${decision.place} ${_reach(decision.reach)} '
+    '-> ${_decision(decision.decision)}'
+    '${decision.proposed == null ? '' : ' proposed=${decision.proposed}'}';
+
+/// As [_encodeDecision], for the result following [decision].
+String _encodeResult<P>(AirlockDecisionOnAction<P> decision, Outcome<Object?> result) =>
+    '${decision.trajectoryId}@${decision.place} ${_reach(decision.reach)} '
+    '-> ${_outcome(result)}'
+    '${decision.proposed == null ? '' : ' proposed=${decision.proposed}'}';
 
 String _reach(Reach reach) => switch (reach) {
   Reads(:final path) => 'reads $path',
   Writes(:final file) => 'writes ${file.path}',
   Starts(:final program, :final args) =>
     'starts $program ${args.args.join(' ')}',
-  Sends(:final origin, :final signIn) =>
-    'sends $origin as ${signIn ?? 'no sign-in'}',
+  MakesWebRequest(:final request) =>
+    'sends ${request.origin}${request.path} as ${request.signIn ?? 'no sign-in'} '
+    'projection=${request.projection.wire} drawnFrom=${request.drawnFrom}',
+  CallsTheModel(:final signIn, :final model) => 'asks $model as $signIn',
 };
 
 String _decision(Decision decision) => switch (decision) {
@@ -112,7 +158,10 @@ String _decision(Decision decision) => switch (decision) {
 };
 
 String _outcome(Outcome<Object?> outcome) => switch (outcome) {
-  Ran(output: Sent(created: final created?)) => 'ran created=$created',
+  Ran(output: WebResponse(created: final created?)) =>
+    'ran created=$created',
+  Ran(output: WebResponse(refusedBecause: final refusedBecause?)) =>
+    'ran refusedBecause=$refusedBecause',
   Ran() => 'ran',
   Refused(:final why) => 'refused: $why',
 };

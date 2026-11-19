@@ -1,7 +1,7 @@
 name: is_airlock
 description: >-
   An Airlock that decides and records runs under is_airlock_api, witnessing
-  every arrival before anything reads it, by sending each to is_journal's
+  every arrival before anything reads it, by sending each to is_logbook's
   one writer service.
 version: 0.1.0
 repository: https://github.com/intersyntactic/airlock
@@ -10,16 +10,23 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
-  is_airlock_api: ^0.3.0
-  is_effects: ^0.1.0
-  is_journal: ^0.5.0
+  is_airlock_api: ^0.11.0
+  is_effects: ^0.9.0
+  is_flight_rules: ^0.1.2
+  is_logbook: ^0.2.1
   checked_json: ^0.2.1
+  is_logbook_client: ^0.2.0
+  is_web_request_driver: ^0.4.1
+  is_docking_station: ^0.1.0
+  is_claude_code_driver: ^0.3.0
 
 dev_dependencies:
+  analyzer: ^14.7.0
+  is_shapes: ^0.6.0
   lints: ^6.1.0
   test: ^1.25.0
 
-# The whole dependency chain (is_effects, is_airlock_api, is_journal) is
+# The whole dependency chain (is_effects, is_airlock_api, is_logbook) is
 # hosted now, so this package could publish. publish_to: none until Nick
 # says go — nothing here has asked for that yet.
 publish_to: none
