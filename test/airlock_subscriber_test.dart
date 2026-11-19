@@ -10,6 +10,35 @@ import 'package:test/test.dart';
 
 import 'logbook_service_harness.dart';
 
+/// Every [skippedMalformedEntryKind] line in [harness]'s record so far,
+/// the same `<kind>\n<previous>\n<body>` reading [_awaitAnswer] uses for
+/// [outcomeOfProposedActionKind].
+List<String> _skippedEntryLines(Directory journalDir) => [
+  for (final bytes in _entries(journalDir))
+    utf8.decode(bytes, allowMalformed: true),
+].where((text) => text.startsWith('$skippedMalformedEntryKind\n')).toList();
+
+/// Builds one [Entry] exactly as [runAirlockService] reads it off a real
+/// subscription, without going through [LogbookWriter]: the writer's own
+/// schema checks refuse a malformed `event-admitted-to-mission` or
+/// `users-assigned-to-trajectory` body before it is ever recorded (task
+/// 38's own testing hit this), so a *historical* malformed entry — one
+/// task 38 exists for — can only be exercised by handing
+/// [runAirlockService] a fabricated [Entry] directly, the same shape a
+/// pre-validation writer, or a bug in validation, could have left behind.
+Entry _fakeEntry(String kind, ObjectId? previous, Uint8List body) {
+  final recorded = Uint8List.fromList([
+    ...utf8.encode('$kind\n${previous?.hex ?? '-'}\n'),
+    ...body,
+  ]);
+  return Entry(
+    id: ObjectId.of(recorded),
+    kind: Kind.parse(kind)!,
+    previous: previous,
+    recorded: recorded,
+  );
+}
+
 /// The bytes of every entry the harness's logbook holds, in order — the
 /// same reading [recorded_airlock_test.dart] uses, duplicated here rather
 /// than shared since each test file's `main` owns its own fixtures.
@@ -33,6 +62,7 @@ Uint8List _object(Directory journalDir, Uint8List digest) {
 /// counts as written, same as [RecordClient.send] treats it.
 ObjectId _written(WriteResult result) => switch (result) {
   Written(:final entry) || AlreadyRecorded(:final entry) => entry,
+  WriteRefused(:final why) => throw StateError('refused: $why'),
   _ => throw StateError('not written: $result'),
 };
 
@@ -101,8 +131,11 @@ Future<(TrajectoryId, ObjectId)> _admitAndAssign(
 /// [readOutcomeOfProposedAction]'s `proposed` space — `EntryId.of` its
 /// object bytes, header included: the same sha256 `write()`'s own
 /// [ObjectId] is, under is_airlock_api's own type).
-Future<EntryId> _propose(LogbookWriter writer) async {
-  final (_, assignedHash) = await _admitAndAssign(writer);
+Future<EntryId> _propose(
+  LogbookWriter writer, {
+  Map<String, Object?>? rules,
+}) async {
+  final (_, assignedHash) = await _admitAndAssign(writer, rules: rules);
 
   final proposedBody = Uint8List.fromList(
     utf8.encode(jsonEncode({'program': 'read', 'place': 1, 'input': ''})),
@@ -158,6 +191,7 @@ void main() {
         'airlock-decision-on-action',
         'airlock-decision-on-web-request',
         'outcome-of-proposed-action',
+        'skipped-malformed-entry',
       ],
       withReadSocket: true,
       // loop-1 must resolve to this test process's own real uid: the
@@ -199,6 +233,7 @@ void main() {
           proposalsEnabled: true,
           recordIndex: recordIndex,
           recordRejection: airlock.recordRejection,
+          writeLogbookEntry: airlock.writeLogbookEntry,
           say: (_) {},
         ),
       );
@@ -237,6 +272,7 @@ void main() {
           proposalsEnabled: false,
           recordIndex: recordIndex,
           recordRejection: airlock.recordRejection,
+          writeLogbookEntry: airlock.writeLogbookEntry,
           say: (_) {},
         ),
       );
@@ -247,6 +283,155 @@ void main() {
         timeout: const Duration(milliseconds: 500),
       );
       expect(answer, isNull, reason: 'the gate should have refused to act');
+    },
+  );
+
+  test(
+    'an admitted entry with unreadable rules is skipped, not crashed, and '
+    'the proposed entry it starves of rules is fail-closed-rejected (task 38)',
+    () async {
+      final admittedBody = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'event': ObjectId.of(utf8.encode('fake event')).hex,
+            'by': 'rules',
+            'reading': {'case': 'something-else'},
+            'startsMission': true,
+            'startsTrajectory': true,
+            // Not a valid WhatMayLeaveThisMachine shape: readTrajectoryStart
+            // reads this as UnreadableTrajectoryEntry rather than rules.
+            'rules': <String, Object?>{},
+          }),
+        ),
+      );
+      final admitted = _fakeEntry(
+        'event-admitted-to-mission',
+        null,
+        admittedBody,
+      );
+      final trajectoryId = TrajectoryId.of(admitted.recorded);
+
+      final assignedBody = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'trajectory': trajectoryId.hex,
+            'mission': MissionId.of(admitted.recorded).hex,
+            'loopUser': 'loop-1',
+            'suit': 'suit-1',
+          }),
+        ),
+      );
+      final assigned = _fakeEntry(
+        'users-assigned-to-trajectory',
+        null,
+        assignedBody,
+      );
+
+      final proposedBody = Uint8List.fromList(
+        utf8.encode(jsonEncode({'program': 'read', 'place': 1, 'input': ''})),
+      );
+      final proposed = _fakeEntry(
+        ActionProposedByAgentLoop.kind,
+        assigned.id,
+        proposedBody,
+      );
+      final proposedId = EntryId.of(proposed.recorded);
+
+      final recordIndex = RecordIndex();
+      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
+        RecordClient(harness.socketPath),
+        decide: (reach, rules) => const Allow(by: DecidedBy.rules),
+        recordedOn: recordIndex.recordedOn,
+        placeToJson: (place) => place,
+      );
+
+      unawaited(
+        runAirlockService(
+          subscribe: () => Stream.fromIterable([
+            admitted,
+            assigned,
+            proposed,
+            const CaughtUp(null),
+          ]),
+          airlock: airlock,
+          drivers: const [],
+          proposalsEnabled: true,
+          recordIndex: recordIndex,
+          recordRejection: airlock.recordRejection,
+          writeLogbookEntry: airlock.writeLogbookEntry,
+          say: (_) {},
+        ),
+      );
+
+      // Fail-closed-rejected (site 1, consider()'s own no-rules branch),
+      // not crash-looped: the proposal still gets an answer.
+      final answer = await _awaitAnswer(harness, proposedId);
+      expect(answer, isNotNull, reason: 'no answer within 2s');
+
+      // The unreadable admitted entry itself was logged (site 2), not
+      // thrown past.
+      expect(_skippedEntryLines(harness.journalDir), isNotEmpty);
+    },
+  );
+
+  test(
+    'a malformed users-assigned-to-trajectory entry is skipped, not '
+    'crashed, and the service keeps serving other trajectories (task 38)',
+    () async {
+      // _decodeAssigned cannot read this: missing `suit`.
+      final malformedAssigned = _fakeEntry(
+        'users-assigned-to-trajectory',
+        null,
+        Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              'trajectory': TrajectoryId.of(
+                utf8.encode('fake trajectory'),
+              ).hex,
+              'mission': MissionId.of(utf8.encode('fake mission')).hex,
+              'loopUser': 'loop-1',
+            }),
+          ),
+        ),
+      );
+
+      final recordIndex = RecordIndex();
+      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, Place>(
+        RecordClient(harness.socketPath),
+        decide: (reach, rules) => const Allow(by: DecidedBy.rules),
+        recordedOn: recordIndex.recordedOn,
+        placeToJson: (place) => place,
+      );
+
+      // The one fake, malformed entry first, then the real subscription —
+      // so a well-formed trajectory proposed afterward through the real
+      // writer reaches this same running service, proving it's still
+      // alive, not just that it accepted one fake entry.
+      unawaited(
+        runAirlockService(
+          subscribe: () async* {
+            yield malformedAssigned;
+            yield* LogbookReader(harness.readSocketPath!).subscribe();
+          },
+          airlock: airlock,
+          drivers: const [],
+          proposalsEnabled: true,
+          recordIndex: recordIndex,
+          recordRejection: airlock.recordRejection,
+          writeLogbookEntry: airlock.writeLogbookEntry,
+          say: (_) {},
+        ),
+      );
+
+      // A well-formed trajectory proposed afterward (through the real
+      // writer, since this one is well-formed) still gets answered — proof
+      // the malformed assigned entry didn't kill the service.
+      final writer = LogbookWriter(harness.socketPath);
+      final proposedId = await _propose(writer);
+      final answer = await _awaitAnswer(harness, proposedId);
+      expect(answer, isNotNull, reason: 'service died after the skip');
+
+      expect(_skippedEntryLines(harness.journalDir), isNotEmpty);
     },
   );
 }

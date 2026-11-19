@@ -144,6 +144,7 @@ Future<void> runAirlockService({
   required bool proposalsEnabled,
   required RecordIndex recordIndex,
   required Future<void> Function(EntryId proposed, String why) recordRejection,
+  required Future<void> Function(String line) writeLogbookEntry,
   required void Function(String line) say,
 }) async {
   final rulesOf = <TrajectoryId, WhatMayLeaveThisMachine>{};
@@ -182,10 +183,13 @@ Future<void> runAirlockService({
   Future<void> consider(_Buffered entry) async {
     final trajectory = build(entry.trajectory);
     if (trajectory == null) {
-      throw StateError(
+      const why = 'no rules or suit for this trajectory';
+      say(
         '${entry.id.hex}: proposed on ${entry.trajectory.hex}, which has '
         'no rules or suit',
       );
+      await recordRejection(entry.id, why);
+      return;
     }
     final Object? json;
     try {
@@ -257,16 +261,24 @@ Future<void> runAirlockService({
           case EntryStartsNoTrajectory<WhatMayLeaveThisMachine>():
             break;
           case UnreadableTrajectoryEntry<WhatMayLeaveThisMachine>(:final why):
-            throw StateError('${id.hex}: admitted entry unreadable: $why');
+            // is_docking_station's own doc on UnreadableTrajectoryEntry says
+            // a rules-enforcing reader "must stop" here; safe to skip
+            // instead specifically because build() already returns null for
+            // a trajectory with no rules, and consider()'s own no-rules
+            // branch already fail-closed-rejects every proposal on one.
+            final line = '${id.hex}: admitted entry unreadable: $why';
+            say(line);
+            await writeLogbookEntry(line);
         }
 
       case Entry(:final kind, :final id, :final body)
           when kind == _assignedKind:
         final assigned = _decodeAssigned(body);
         if (assigned == null) {
-          throw StateError(
-            '${id.hex}: not a users-assigned-to-trajectory entry',
-          );
+          final line = '${id.hex}: not a users-assigned-to-trajectory entry';
+          say(line);
+          await writeLogbookEntry(line);
+          break;
         }
         suitOf[assigned.trajectory] = assigned.suit;
         recordIndex.root(id, assigned.trajectory);

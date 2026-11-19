@@ -112,7 +112,20 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
       utf8.encode(jsonEncode(proposalRejectedToJson(proposed, why))),
     );
   }
+
+  /// Records [line] under [skippedMalformedEntryKind], for a historical
+  /// entry [runAirlockService] skipped rather than crash-looping on: same
+  /// "nothing checks it as it runs, a person reads it" pattern as
+  /// [AirlockDecisionOnAction]'s own kind.
+  Future<void> writeLogbookEntry(String line) async {
+    await _record.send(skippedMalformedEntryKind, utf8.encode(line));
+  }
 }
+
+/// A historical entry [runAirlockService] skipped instead of crashing on,
+/// so systemd's restart-and-replay does not die on the same entry forever
+/// (Nick's name, 18 Nov).
+const skippedMalformedEntryKind = 'skipped-malformed-entry';
 
 /// One journal line of body for [decision], human-readable: `is_logbook`'s
 /// own design ("nothing checks it as it runs, so a person reads it

@@ -75,6 +75,7 @@ Future<void> main() async {
     proposalsEnabled: proposalsEnabled,
     recordIndex: recordIndex,
     recordRejection: airlock.recordRejection,
+    writeLogbookEntry: airlock.writeLogbookEntry,
     say: stderr.writeln,
   );
 }
