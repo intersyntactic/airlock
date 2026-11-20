@@ -253,16 +253,61 @@ void main() {
         ).at(3),
       );
 
+      final resultLines = _entries(
+        harness.journalDir,
+      ).map(utf8.decode).where((l) => l.startsWith('result\n'));
+      final humanLines = resultLines
+          .map((l) => JsonObject.decode(l.substring(l.indexOf('{'))))
+          .map((body) => body.string('line'))
+          .toList();
+      expect(humanLines, contains(endsWith('-> ran created=abc-123')));
+      expect(humanLines, contains(endsWith('-> ran')));
+      expect(humanLines, contains(endsWith('-> ran refusedBecause=error.code')));
+    },
+  );
+
+  test(
+    'a Returned entry for a WebRequestOutcome with no proposal still '
+    'carries its redirects and kept body, not just the human line',
+    () async {
+      final origin = Origin.parse('https://smba.trafficmanager.net')!;
+      final a = airlock();
+      final redirectedTo = RedirectedTo.of(
+        Uri.parse('https://smba.trafficmanager.net/moved'),
+      )!;
+
+      Action<Object?> send() => Program.web.run<Outcome<WebResponse>>(
+        WebRequest(
+          origin,
+          body: teamsMessageBody,
+          projection: Projection.teamsMessageFromModelReply,
+          drawnFrom: EntryId.of(utf8.encode('fake proposed')),
+          signIn: SignIn.parse('cam-teams'),
+        ),
+        then: Done.new,
+      );
+
+      await send().next(
+        path(
+          a,
+          onSend: (r) => Ran(
+            WebResponse(
+              status: 200,
+              body: const TextBody('hello'),
+              redirects: [redirectedTo],
+            ),
+          ),
+        ).at(1),
+      );
+
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
-      expect(lines, contains(contains('-> ran created=abc-123')));
-      expect(
-        lines,
-        contains(predicate<String>((l) => l.endsWith('-> ran'))),
-      );
-      expect(
-        lines,
-        contains(contains('-> ran refusedBecause=error.code')),
-      );
+      final resultLine = lines.firstWhere((l) => l.startsWith('result\n'));
+      final body = JsonObject.decode(resultLine.substring(resultLine.indexOf('{')));
+      final output = body.object('result').object('output');
+      expect(output.strings('redirects'), [redirectedTo.toString()]);
+      final responseBody = output.object('body');
+      expect(responseBody.string('kind'), 'text');
+      expect(responseBody.string('text'), 'hello');
     },
   );
 

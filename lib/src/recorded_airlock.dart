@@ -77,8 +77,10 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   /// under [outcomeOfProposedActionKind]: the loop's `propose()` is
   /// waiting to decode exactly that back, and a human line there would
   /// leave it waiting forever instead of failing loudly. An action proposed
-  /// in this service's own process, with no loop waiting, still gets
-  /// [_encode]'s human line.
+  /// in this service's own process, with no loop waiting, still records
+  /// [resultAsJson] in full, so a web response's redirects and kept body
+  /// never depend on whether a proposal answered it, with [_encodeResult]'s
+  /// human line alongside it as an extra, never instead.
   @override
   Future<void> recordResult(
     AirlockDecisionOnAction<P> decision,
@@ -97,7 +99,13 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
             outcomeOfProposedActionKind,
             jsonEncode(outcomeOfProposedActionToJson(proposed, resultAsJson)),
           )
-        : ('result', _encodeResult(decision, result));
+        : (
+            'result',
+            jsonEncode({
+              'result': resultAsJson,
+              'line': _encodeResult(decision, result),
+            }),
+          );
     await _record.send(kind, utf8.encode(body), previous: previous);
   }
 
