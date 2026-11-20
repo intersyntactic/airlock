@@ -168,7 +168,7 @@ Future<void> runAirlockService({
     final object = JsonObject.parse(json);
     if (object == null) return null;
     try {
-      return WhatMayLeaveThisMachine.fromJson(object);
+      return FlightRules.fromJson(object).whatMayLeaveThisMachine;
     } on FormatException {
       return null;
     }
