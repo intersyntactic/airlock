@@ -73,9 +73,12 @@ final _realUid = int.parse(
 );
 
 final _rulesJson = {
-  'modelSignInsCallsMayGoOutAs': <String>[],
-  'sitesTheWebDriverMayReach': <Object?>[],
-  'programsNetwork': 'noNetworkOfTheirOwn',
+  'whatMayLeaveThisMachine': {
+    'modelSignInsCallsMayGoOutAs': <String>['nick-claude-team'],
+    'sitesTheWebDriverMayReach': <Object?>[],
+    'programsNetwork': 'noNetworkOfTheirOwn',
+  },
+  'startingModel': {'signIn': 'nick-claude-team', 'model': 'claude-opus-5-5'},
 };
 
 /// Writes docking_station's admitted entry and loop_launcher's assigned
@@ -249,6 +252,72 @@ void main() {
       // []): the proposal is still decided, recorded and answered, but with
       // nothing able to carry it out.
       expect(outcome, isA<Refused>());
+    },
+  );
+
+  test(
+    'reads rules under the FlightRules envelope shape '
+    '(whatMayLeaveThisMachine + startingModel), not the bare fields alone',
+    () async {
+      final proposedId = await _propose(
+        LogbookWriter(harness.socketPath),
+        rules: {
+          'whatMayLeaveThisMachine': {
+            'modelSignInsCallsMayGoOutAs': ['nick-claude-team'],
+            'sitesTheWebDriverMayReach': [
+              {
+                'site': 'https://smba.trafficmanager.net',
+                'goesAs': {'kind': 'signIn', 'signIn': 'cam-teams'},
+              },
+            ],
+            'programsNetwork': 'sharesThisMachinesNetwork',
+          },
+          'startingModel': {
+            'signIn': 'nick-claude-team',
+            'model': 'claude-opus-5-5',
+          },
+        },
+      );
+
+      final recordIndex = RecordIndex();
+      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+        RecordClient(harness.socketPath),
+        decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
+        recordedOn: recordIndex.recordedOn,
+        rawEntry: recordIndex.raw,
+        registryByScheme: const {},
+      );
+
+      unawaited(
+        runAirlockService(
+          subscribe: () => LogbookReader(harness.readSocketPath!).subscribe(),
+          airlock: airlock,
+          drivers: const [],
+          proposalsEnabled: true,
+          recordIndex: recordIndex,
+          recordRejection: airlock.recordRejection,
+          writeLogbookEntry: airlock.writeLogbookEntry,
+          say: (_) {},
+        ),
+      );
+
+      final answer = await _awaitAnswer(harness, proposedId);
+      expect(answer, isNotNull, reason: 'no answer within 2s');
+      final outcome = decodeOutcome(
+        answer!.result,
+        (json, field) => decodeReadResult(json, field),
+      );
+      // Decided and refused for lack of a driver, not fail-closed-rejected
+      // for lack of rules: proves the envelope's whatMayLeaveThisMachine
+      // was read, not left null by a reader that tried the bare fields on
+      // the whole envelope and found none of them there.
+      expect(outcome, isA<Refused>());
+      expect((outcome as Refused).why, isNot(contains('no rules or suit')));
+      expect(
+        _skippedEntryLines(harness.journalDir),
+        isEmpty,
+        reason: 'the admitted entry should have read as rules, not skipped',
+      );
     },
   );
 
