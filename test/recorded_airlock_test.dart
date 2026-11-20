@@ -253,13 +253,16 @@ void main() {
         ).at(3),
       );
 
-      final lines = _entries(harness.journalDir).map(utf8.decode).toList();
-      expect(lines, contains(contains('-> ran created=abc-123')));
-      expect(lines, contains(contains('-> ran"}')));
-      expect(
-        lines,
-        contains(contains('-> ran refusedBecause=error.code')),
-      );
+      final resultLines = _entries(
+        harness.journalDir,
+      ).map(utf8.decode).where((l) => l.startsWith('result\n'));
+      final humanLines = resultLines
+          .map((l) => JsonObject.decode(l.substring(l.indexOf('{'))))
+          .map((body) => body.string('line'))
+          .toList();
+      expect(humanLines, contains(endsWith('-> ran created=abc-123')));
+      expect(humanLines, contains(endsWith('-> ran')));
+      expect(humanLines, contains(endsWith('-> ran refusedBecause=error.code')));
     },
   );
 
@@ -299,13 +302,12 @@ void main() {
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       final resultLine = lines.firstWhere((l) => l.startsWith('result\n'));
-      final body =
-          jsonDecode(resultLine.substring(resultLine.indexOf('{')))
-              as Map<String, Object?>;
-      final result = body['result'] as Map<String, Object?>;
-      final output = result['output'] as Map<String, Object?>;
-      expect(output['redirects'], [redirectedTo.toString()]);
-      expect(output['body'], {'kind': 'text', 'text': 'hello'});
+      final body = JsonObject.decode(resultLine.substring(resultLine.indexOf('{')));
+      final output = body.object('result').object('output');
+      expect(output.strings('redirects'), [redirectedTo.toString()]);
+      final responseBody = output.object('body');
+      expect(responseBody.string('kind'), 'text');
+      expect(responseBody.string('text'), 'hello');
     },
   );
 
