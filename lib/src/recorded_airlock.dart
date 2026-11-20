@@ -1,9 +1,43 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
+import 'package:is_docking_station/is_docking_station.dart';
 import 'package:is_effects/is_effects.dart';
+import 'package:is_logbook_client/is_logbook_client.dart' show Kind, ObjectId;
 
 import 'record_client.dart';
+
+/// The source before an [AddressInExternalSystem]'s first `:`, such as
+/// `teams` of `teams:19:abc@thread.v2` — the same string
+/// [RelayedEvent.source] names. Typed so [RecordedAirlock]'s own registry
+/// compares it as a value, not as a bare string.
+final class ExternalSystemScheme {
+  const ExternalSystemScheme._(this._value);
+
+  /// [address]'s own scheme, always well-formed since
+  /// [AddressInExternalSystem.parse] already required a `:`.
+  factory ExternalSystemScheme.of(AddressInExternalSystem address) =>
+      ExternalSystemScheme._(
+        address.value.substring(0, address.value.indexOf(':')),
+      );
+
+  /// [raw] as a scheme; null for an empty one.
+  static ExternalSystemScheme? parse(String raw) =>
+      raw.isEmpty ? null : ExternalSystemScheme._(raw);
+
+  final String _value;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ExternalSystemScheme && other._value == _value;
+
+  @override
+  int get hashCode => _value.hashCode;
+
+  @override
+  String toString() => _value;
+}
 
 /// A [DecidesAndRecordsActions] that sends what it decides and records to
 /// `is_logbook`'s one writer, over a [RecordClient].
@@ -13,19 +47,19 @@ import 'record_client.dart';
 /// as a function rather than a shape this package would have to guess at.
 /// `P`, the host's place-in-a-turn type, is never read here either: it is
 /// logged by whatever it prints as, same as everything else an entry
-/// carries, except for a web request's decision, whose wire shape needs it
-/// as JSON — [placeToJson] does that conversion, since this package does
-/// not know what `P` actually is.
+/// carries.
 ///
-/// [recordedOn] is given as a function too, for the same reason: following
-/// the record for what it holds is genuinely this package's to build (see
-/// lib/src/record_index.dart), but is not this type's own concern.
+/// [recordedOn] and [rawEntry] are given as functions too, for the same
+/// reason: following the record for what it holds is genuinely this
+/// package's to build (see lib/src/record_index.dart), but is not this
+/// type's own concern.
 final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   RecordedAirlock(
     this._record, {
     required this._decide,
     required this._recordedOn,
-    required this._placeToJson,
+    required this._rawEntry,
+    required this._registryByScheme,
   });
 
   final RecordClient _record;
@@ -35,7 +69,22 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
     EntryId entry,
   )
   _recordedOn;
-  final Object? Function(P place) _placeToJson;
+
+  /// [id]'s own kind, previous and body, with no trajectory check: used
+  /// only after [_turnStartingAdmission] has itself checked ownership of
+  /// the admission entry, and for the relayed event it names, which is
+  /// never on any trajectory's own chain.
+  final ({String kind, ObjectId? previous, String body})? Function(EntryId id)
+  _rawEntry;
+
+  /// Which module builds the requests answering an event, and which
+  /// sign-in they go as, by the scheme of its address in its external
+  /// system (`teams` of `teams:19:abc@thread.v2`): one entry per relay
+  /// whose events this airlock can answer. Airlock's own call
+  /// (is_airlock_api's own doc on [replyRequests]: "the airlock picks the
+  /// module and the sign-in the requests go as").
+  final Map<ExternalSystemScheme, ({BuildsRequestsAnsweringEvents module, SignIn signIn})>
+  _registryByScheme;
 
   /// The logbook entry [recordDecision] wrote for a decision, so
   /// [recordResult] can extend its chain without a second write naming it
@@ -53,21 +102,18 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
     EntryId entry,
   ) => _recordedOn(trajectory, entry);
 
-  /// Writes [decision] in whichever shape its reader actually needs.
-  ///
-  /// A [MakesWebRequest] decision gets [AirlockDecisionOnWebRequest]'s own
-  /// wire shape, under its own kind, since the exact request bytes it
-  /// carries are read back by this package itself (`MakeWebRequest._make`,
-  /// through [recordedOn]). Every other reach gets [_encode]'s human line
-  /// under [AirlockDecisionOnAction.kind]: `is_logbook`'s own design is that
-  /// nothing checks it as it runs, so a person reads it instead.
+  /// Writes [decision] under [AirlockDecisionOnAction.kind], as
+  /// [_encodeDecision]'s human line: `is_logbook`'s own design is that
+  /// nothing checks a decision as it runs, so a person reads it instead.
+  /// Nothing reads a decision back structurally — an [AnswersEvent]'s own
+  /// driver call is given the exact [Reach] it decided in memory, never
+  /// re-read from the record.
   @override
   Future<void> recordDecision(AirlockDecisionOnAction<P> decision) async {
-    final webRequest = AirlockDecisionOnWebRequest.of(decision, _placeToJson);
-    final (kind, body) = webRequest != null
-        ? (AirlockDecisionOnWebRequest.kind, jsonEncode(webRequest.toJson()))
-        : (AirlockDecisionOnAction.kind, _encodeDecision(decision));
-    _decisionHash[decision] = await _record.send(kind, utf8.encode(body));
+    _decisionHash[decision] = await _record.send(
+      AirlockDecisionOnAction.kind,
+      utf8.encode(_encodeDecision(decision)),
+    );
   }
 
   /// Writes [result] extending [decision]'s chain.
@@ -129,6 +175,132 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   Future<void> writeLogbookEntry(String line) async {
     await _record.send(skippedMalformedEntryKind, utf8.encode(line));
   }
+
+  @override
+  Future<Outcome<List<Request>>> replyRequests(
+    TrajectoryId trajectory,
+    EntryId respondsTo,
+    ModelReply reply,
+  ) => _requestsAnswering(
+    trajectory,
+    respondsTo,
+    (module, relayedEvent, signIn) => module.replyRequests(
+      relayedEvent: relayedEvent,
+      reply: reply,
+      signIn: signIn,
+    ),
+  );
+
+  @override
+  Future<Outcome<List<Request>>> trajectoryOpenedRequests(
+    TrajectoryId trajectory,
+  ) =>
+      // The admission that started a trajectory is named by no other entry:
+      // its own hash IS the trajectory id (is_airlock_api's own doc on
+      // this method), so it is its own respondsTo.
+      _requestsAnswering(
+        trajectory,
+        EntryId.parse(trajectory.hex)!,
+        (module, relayedEvent, signIn) => module.trajectoryOpenedRequests(
+          relayedEvent: relayedEvent,
+          signIn: signIn,
+        ),
+      );
+
+  /// The requests answering the event [respondsTo] admits for [trajectory],
+  /// [build] run against whichever module answers its address's scheme and
+  /// whichever sign-in posts for that scheme; or [Refused] with why there
+  /// are none. Shared by [replyRequests] and [trajectoryOpenedRequests],
+  /// which differ only in which module method [build] calls and which
+  /// entry respondsTo [trajectory]'s own opening admission.
+  Future<Outcome<List<Request>>> _requestsAnswering(
+    TrajectoryId trajectory,
+    EntryId respondsTo,
+    List<Request>? Function(
+      BuildsRequestsAnsweringEvents module,
+      Uint8List relayedEvent,
+      SignIn signIn,
+    )
+    build,
+  ) async {
+    final EventAdmittedToMission decided;
+    switch (_turnStartingAdmission(trajectory, respondsTo)) {
+      case Refused(:final why):
+        return Refused(why);
+      case Ran(output: final admission):
+        decided = admission;
+    }
+    final scheme = ExternalSystemScheme.of(decided.addressInExternalSystem);
+    final registered = _registryByScheme[scheme];
+    if (registered == null) {
+      return Refused('$respondsTo: no module answers $scheme:');
+    }
+    final eventEntry = _rawEntry(EntryId.parse(decided.event.hex)!);
+    if (eventEntry == null) {
+      return Refused('${decided.event.hex}: the relayed event is not recorded');
+    }
+    final relayed = RelayedEvent.read(decided.event, utf8.encode(eventEntry.body));
+    if (relayed == null) {
+      return Refused('${decided.event.hex} does not read back as a relayed event');
+    }
+    final requests = build(registered.module, relayed.bytes, registered.signIn);
+    if (requests == null) {
+      return Refused('$respondsTo: $scheme\'s module built no requests');
+    }
+    return Ran(requests);
+  }
+
+  /// [respondsTo], read back and checked to admit an event that starts a
+  /// turn on [trajectory]; [Refused] with why not when it doesn't admit
+  /// anything, admits under another trajectory, or starts no turn.
+  ///
+  /// [EventAdmittedToMission.placement] names [trajectory] directly for a
+  /// later turn ([OnTrajectory]), but the admission that starts a
+  /// trajectory ([StartsTrajectory]) names none: its own entry's hash IS
+  /// the trajectory id ([TrajectoryId.of], is_docking_station's own
+  /// `path_start.dart`), rebuilt here from what [RecordIndex.raw] already
+  /// indexed rather than refetched — is_logbook 0.2.1's own wire,
+  /// `<kind>\n<previous-hex-or-dash>\n<body>` (is_logbook's
+  /// `lib/service.dart`'s `_append`).
+  Outcome<EventAdmittedToMission> _turnStartingAdmission(
+    TrajectoryId trajectory,
+    EntryId respondsTo,
+  ) {
+    final raw = _rawEntry(respondsTo);
+    if (raw == null) return Refused('$respondsTo is not recorded');
+    if (Kind.parse(raw.kind) != DecisionEntryKind.eventAdmittedToMission) {
+      return Refused('$respondsTo is a ${raw.kind}, not an admission');
+    }
+    final decision = decodeDecision(
+      DecisionEntryKind.eventAdmittedToMission,
+      utf8.encode(raw.body),
+    );
+    if (decision is! EventAdmittedToMission) {
+      return Refused('$respondsTo does not read back as an admission');
+    }
+    if (decision.startsTurn != true) {
+      return Refused('$respondsTo starts no turn');
+    }
+    final onThisTrajectory = switch (decision.placement) {
+      OnTrajectory(trajectory: final onTrajectory) => onTrajectory == trajectory,
+      StartsTrajectory() =>
+        TrajectoryId.of(_entryBytes(raw.kind, raw.previous, raw.body)) ==
+            trajectory,
+      IntoMission() => false,
+    };
+    if (!onThisTrajectory) {
+      return Refused('$respondsTo does not admit an event on $trajectory');
+    }
+    return Ran(decision);
+  }
+
+  /// [kind], [previous] and [body] as the bytes the record actually hashes
+  /// an entry's id from: see [_turnStartingAdmission]'s own doc.
+  Uint8List _entryBytes(String kind, ObjectId? previous, String body) =>
+      Uint8List.fromList([
+        ...utf8.encode('$kind\n${previous?.hex ?? '-'}\n'),
+        ...utf8.encode(body),
+      ]);
 }
 
 /// A historical entry [runAirlockService] skipped instead of crashing on,
@@ -155,11 +327,21 @@ String _reach(Reach reach) => switch (reach) {
   Writes(:final file) => 'writes ${file.path}',
   Starts(:final program, :final args) =>
     'starts $program ${args.args.join(' ')}',
-  MakesWebRequest(:final request) =>
-    'sends ${request.origin}${request.path} as ${request.signIn ?? 'no sign-in'} '
-    'projection=${request.projection.wire} drawnFrom=${request.drawnFrom}',
+  AnswersEvent(:final answer, :final requests) =>
+    'answers ${_answer(answer)} with ${requests.map(_request).join(', ')}',
+  FetchesFromWeb(:final fetch) =>
+    'fetches ${fetch.origin}${fetch.path} as ${fetch.signIn ?? 'no sign-in'}',
   CallsTheModel(:final signIn, :final model) => 'asks $model as $signIn',
 };
+
+String _answer(Answer answer) => switch (answer) {
+  ReplyToEvent(:final respondsTo, :final reply) =>
+    'reply to $respondsTo (model reply $reply)',
+  TrajectoryOpened() => 'trajectory opened',
+};
+
+String _request(Request request) =>
+    '${request.origin}${request.path} as ${request.signIn ?? 'no sign-in'}';
 
 String _decision(Decision decision) => switch (decision) {
   Allow(:final by) => 'allow (by ${by.name})',
@@ -167,10 +349,18 @@ String _decision(Decision decision) => switch (decision) {
 };
 
 String _outcome(Outcome<Object?> outcome) => switch (outcome) {
+  Ran(output: final List<WebResponse> responses) =>
+    'ran ${responses.map(_response).join(', ')}',
   Ran(output: WebResponse(created: final created?)) =>
     'ran created=$created',
   Ran(output: WebResponse(refusedBecause: final refusedBecause?)) =>
     'ran refusedBecause=$refusedBecause',
   Ran() => 'ran',
   Refused(:final why) => 'refused: $why',
+};
+
+String _response(WebResponse response) => switch (response) {
+  WebResponse(created: final created?) => 'created=$created',
+  WebResponse(refusedBecause: final refusedBecause?) => 'refusedBecause=$refusedBecause',
+  _ => '${response.status}',
 };
