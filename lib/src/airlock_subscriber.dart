@@ -22,7 +22,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
-import 'package:is_docking_station/src/path_start.dart'
+import 'package:is_docking_station/path_start.dart'
     show
         EntryStartsTrajectory,
         EntryStartsNoTrajectory,
