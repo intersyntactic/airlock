@@ -111,7 +111,7 @@ void main() {
     Decision Function(TrajectoryId trajectory, Reach reach, String rules)? decide,
     ({String kind, ObjectId? previous, String body})? Function(EntryId id)?
     rawEntry,
-    Map<String, ({BuildsRequestsAnsweringEvents module, SignIn signIn})>?
+    Map<ExternalSystemScheme, ({BuildsRequestsAnsweringEvents module, SignIn signIn})>?
     registryByScheme,
   }) => RecordedAirlock<String, int>(
     RecordClient(harness.socketPath),
@@ -446,7 +446,10 @@ void main() {
             _ => null,
           },
           registryByScheme: {
-            'teams': (module: module, signIn: SignIn.parse('cam-teams')!),
+            ExternalSystemScheme.parse('teams')!: (
+              module: module,
+              signIn: SignIn.parse('cam-teams')!,
+            ),
           },
         );
 
@@ -496,7 +499,10 @@ void main() {
             _ => null,
           },
           registryByScheme: {
-            'teams': (module: module, signIn: SignIn.parse('cam-teams')!),
+            ExternalSystemScheme.parse('teams')!: (
+              module: module,
+              signIn: SignIn.parse('cam-teams')!,
+            ),
           },
         );
 

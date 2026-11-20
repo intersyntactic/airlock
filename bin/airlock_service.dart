@@ -66,7 +66,10 @@ Future<void> main() async {
     recordedOn: recordIndex.recordedOn,
     rawEntry: recordIndex.raw,
     registryByScheme: {
-      'teams': (module: const TeamsRequestsAnsweringEvents(), signIn: teamsSignIn),
+      ExternalSystemScheme.parse('teams')!: (
+        module: const TeamsRequestsAnsweringEvents(),
+        signIn: teamsSignIn,
+      ),
     },
   );
 

@@ -8,6 +8,37 @@ import 'package:is_logbook_client/is_logbook_client.dart' show Kind, ObjectId;
 
 import 'record_client.dart';
 
+/// The source before an [AddressInExternalSystem]'s first `:`, such as
+/// `teams` of `teams:19:abc@thread.v2` — the same string
+/// [RelayedEvent.source] names. Typed so [RecordedAirlock]'s own registry
+/// compares it as a value, not as a bare string.
+final class ExternalSystemScheme {
+  const ExternalSystemScheme._(this._value);
+
+  /// [address]'s own scheme, always well-formed since
+  /// [AddressInExternalSystem.parse] already required a `:`.
+  factory ExternalSystemScheme.of(AddressInExternalSystem address) =>
+      ExternalSystemScheme._(
+        address.value.substring(0, address.value.indexOf(':')),
+      );
+
+  /// [raw] as a scheme; null for an empty one.
+  static ExternalSystemScheme? parse(String raw) =>
+      raw.isEmpty ? null : ExternalSystemScheme._(raw);
+
+  final String _value;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ExternalSystemScheme && other._value == _value;
+
+  @override
+  int get hashCode => _value.hashCode;
+
+  @override
+  String toString() => _value;
+}
+
 /// A [DecidesAndRecordsActions] that sends what it decides and records to
 /// `is_logbook`'s one writer, over a [RecordClient].
 ///
@@ -52,7 +83,7 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   /// whose events this airlock can answer. Airlock's own call
   /// (is_airlock_api's own doc on [replyRequests]: "the airlock picks the
   /// module and the sign-in the requests go as").
-  final Map<String, ({BuildsRequestsAnsweringEvents module, SignIn signIn})>
+  final Map<ExternalSystemScheme, ({BuildsRequestsAnsweringEvents module, SignIn signIn})>
   _registryByScheme;
 
   /// The logbook entry [recordDecision] wrote for a decision, so
@@ -199,7 +230,7 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
       case Ran(output: final admission):
         decided = admission;
     }
-    final scheme = _schemeOf(decided.addressInExternalSystem);
+    final scheme = ExternalSystemScheme.of(decided.addressInExternalSystem);
     final registered = _registryByScheme[scheme];
     if (registered == null) {
       return Refused('$respondsTo: no module answers $scheme:');
@@ -262,13 +293,6 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
     }
     return Ran(decision);
   }
-
-  /// [address]'s own system, the text before its first `:`: `teams` of
-  /// `teams:19:abc@thread.v2` ([AddressInExternalSystem]'s own doc, "a
-  /// source, a colon and the rest"), the same name [RelayedEvent.source]
-  /// gives it.
-  String _schemeOf(AddressInExternalSystem address) =>
-      address.value.substring(0, address.value.indexOf(':'));
 
   /// [kind], [previous] and [body] as the bytes the record actually hashes
   /// an entry's id from: see [_turnStartingAdmission]'s own doc.
