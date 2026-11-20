@@ -10,18 +10,23 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
-  is_airlock_api: ^0.12.0
-  is_effects: ^0.11.0
-  is_flight_rules: ^0.2.0
+  is_airlock_api: ^0.13.1
+  is_effects: ^0.12.0
+  is_flight_rules: ^0.3.0
   is_logbook: ^0.2.1
   checked_json: ^0.2.1
   is_logbook_client: ^0.2.0
-  is_web_request_driver: ^0.5.0
-  is_docking_station: ^0.1.0
-  is_claude_code_driver: ^0.3.1
+  is_web_request_driver: ^0.6.0
+  is_docking_station: ^0.3.0
+  is_claude_code_driver: ^0.3.2
+  is_teams_module:
+    git:
+      url: https://github.com/intersyntactic/teams_module
+      ref: 9e4c16dd24767cda7414aeb9c1e9b902f2f6c4bd
 
 dev_dependencies:
   analyzer: ^14.7.0
+  is_conversation_shapes: ^0.8.3
   is_shapes: ^0.6.0
   lints: ^6.1.0
   test: ^1.25.0

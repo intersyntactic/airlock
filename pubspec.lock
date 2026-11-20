@@ -157,10 +157,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_airlock_api
-      sha256: "2620b63823b246322d38dcbcb778a8589a5ebc242e457a872660d4a3d09f640d"
+      sha256: f5c3286bfe62cf00a683e73a1a918bb1c4bb2ad058795a3b34992829edbafebe
       url: "https://pub.dev"
     source: hosted
-    version: "0.12.1"
+    version: "0.13.1"
   is_annotation_shapes:
     dependency: transitive
     description:
@@ -173,10 +173,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_claude_code_driver
-      sha256: a7d641443e840c1fc26b029e0edd0ddf315cb83d7416c1fd880f1d1bcc2e5bb3
+      sha256: "7b25dd0160f5dbed8cf3967d3699ebdc75b590a5e81442fd0262e754a1bb8dd9"
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.1"
+    version: "0.3.2"
   is_content_id:
     dependency: transitive
     description:
@@ -186,7 +186,7 @@ packages:
     source: hosted
     version: "0.2.0"
   is_conversation_shapes:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: is_conversation_shapes
       sha256: "9cc49a7f1bf6ddb077a86516533b706b6c2ac08856b036a7cfcec67286ba09c1"
@@ -197,26 +197,26 @@ packages:
     dependency: "direct main"
     description:
       name: is_docking_station
-      sha256: "18d390a6bda5c6c6b88b38e455918424a053f1a163e89b455de7eeb80f52c3ba"
+      sha256: "1e32b33f182da0c627ffda2a62709b0400a36fa686b0bfa0499b18189824dc11"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0"
+    version: "0.3.0"
   is_effects:
     dependency: "direct main"
     description:
       name: is_effects
-      sha256: bb3936fec38b2adc0aa4df95a822c444183528a44d85f2501bc019ffb8cf7d43
+      sha256: a9bedb77f620bc711fa81a817c7fbfce0028c567a87cfbc63a2a023d9acd74bd
       url: "https://pub.dev"
     source: hosted
-    version: "0.11.0"
+    version: "0.12.0"
   is_flight_rules:
     dependency: "direct main"
     description:
       name: is_flight_rules
-      sha256: "5a0a7b582ca8d2b0b9aeee381892c9e1000d3f94163b0cab20507b56bbd79afc"
+      sha256: ee717fe2c470fc6ec50649352988c76e5a564dffca2964218a8c9ee4a1922a06
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.0"
+    version: "0.3.0"
   is_logbook:
     dependency: "direct main"
     description:
@@ -249,14 +249,23 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.0"
+  is_teams_module:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: "9e4c16dd24767cda7414aeb9c1e9b902f2f6c4bd"
+      resolved-ref: "9e4c16dd24767cda7414aeb9c1e9b902f2f6c4bd"
+      url: "https://github.com/intersyntactic/teams_module"
+    source: git
+    version: "0.0.1"
   is_web_request_driver:
     dependency: "direct main"
     description:
       name: is_web_request_driver
-      sha256: "2cf7866975fce0d990c7c8c414c27f8d1137faf1a0638d6afb3c4429594fa5e1"
+      sha256: "66c2c6c31997618d8a9dc465c3cc979ba492a216c1ebc4e7c4746e3a2718ab5d"
       url: "https://pub.dev"
     source: hosted
-    version: "0.5.0"
+    version: "0.6.0"
   lints:
     dependency: "direct dev"
     description:
@@ -321,6 +330,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
+  pointycastle:
+    dependency: transitive
+    description:
+      name: pointycastle
+      sha256: "92aa3841d083cc4b0f4709b5c74fd6409a3e6ba833ffc7dc6a8fee096366acf5"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.0"
   pool:
     dependency: transitive
     description:

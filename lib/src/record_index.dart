@@ -23,11 +23,17 @@ import 'package:is_effects/is_effects.dart' show Outcome, Ran, Refused;
 import 'package:is_logbook_client/is_logbook_client.dart' show ObjectId;
 
 final class _Indexed {
-  const _Indexed({required this.trajectory, required this.kind, required this.body});
+  const _Indexed({
+    required this.trajectory,
+    required this.kind,
+    required this.body,
+    required this.previous,
+  });
 
   final TrajectoryId? trajectory;
   final String kind;
   final String body;
+  final ObjectId? previous;
 }
 
 /// Which trajectory's chain each logbook entry is on, and each one's kind
@@ -46,6 +52,7 @@ final class RecordIndex {
         trajectory: trajectory,
         kind: entry.kind,
         body: entry.body,
+        previous: entry.previous,
       );
     }
   }
@@ -63,7 +70,25 @@ final class RecordIndex {
     required String body,
   }) {
     final trajectory = previous == null ? null : _byId[previous.hex]?.trajectory;
-    _byId[id.hex] = _Indexed(trajectory: trajectory, kind: kind, body: body);
+    _byId[id.hex] = _Indexed(
+      trajectory: trajectory,
+      kind: kind,
+      body: body,
+      previous: previous,
+    );
+  }
+
+  /// [id]'s own kind, previous and body, exactly as [add] indexed them —
+  /// no trajectory check, unlike [recordedOn]. Only for a caller that has
+  /// already established [id] belongs where it's using it some other way
+  /// (an admission this package decoded and checked itself, never an id a
+  /// loop handed it): [recordedOn] is the trajectory-checked accessor for
+  /// anything a loop names.
+  ({String kind, ObjectId? previous, String body})? raw(EntryId id) {
+    final indexed = _byId[id.hex];
+    return indexed == null
+        ? null
+        : (kind: indexed.kind, previous: indexed.previous, body: indexed.body);
   }
 
   /// Whether [indexed] belongs to [trajectory] because it is a

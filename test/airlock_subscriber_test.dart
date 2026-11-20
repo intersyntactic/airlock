@@ -222,7 +222,8 @@ void main() {
         RecordClient(harness.socketPath),
         decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
         recordedOn: recordIndex.recordedOn,
-        placeToJson: (place) => place.toJson(),
+        rawEntry: recordIndex.raw,
+        registryByScheme: const {},
       );
 
       unawaited(
@@ -261,7 +262,8 @@ void main() {
         RecordClient(harness.socketPath),
         decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
         recordedOn: recordIndex.recordedOn,
-        placeToJson: (place) => place.toJson(),
+        rawEntry: recordIndex.raw,
+        registryByScheme: const {},
       );
 
       unawaited(
@@ -342,7 +344,8 @@ void main() {
         RecordClient(harness.socketPath),
         decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
         recordedOn: recordIndex.recordedOn,
-        placeToJson: (place) => place.toJson(),
+        rawEntry: recordIndex.raw,
+        registryByScheme: const {},
       );
 
       unawaited(
@@ -400,7 +403,8 @@ void main() {
         RecordClient(harness.socketPath),
         decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
         recordedOn: recordIndex.recordedOn,
-        placeToJson: (place) => place.toJson(),
+        rawEntry: recordIndex.raw,
+        registryByScheme: const {},
       );
 
       // The one fake, malformed entry first, then the real subscription —

@@ -12,6 +12,10 @@
 ///   AIRLOCK_RECORD_READ_SOCKET  the writer service's read/subscribe socket
 ///   AIRLOCK_WEB_DRIVER_SOCKET   the web driver's Unix socket
 ///   AIRLOCK_MODEL_DRIVER_SOCKET the model driver's Unix socket
+///   AIRLOCK_TEAMS_SIGN_IN       which sign-in posts a Teams reply or the
+///                               trajectory-opened card (operational, not
+///                               a build: infra's call which name CAM's
+///                               Teams sign-in actually has)
 ///   AIRLOCK_PROPOSALS_ENABLED   `1` or `true` once infra-5e has confirmed
 ///                               the record enforces that a trajectory's
 ///                               chain takes entries only from its own loop
@@ -26,6 +30,8 @@ import 'package:is_airlock/is_airlock.dart';
 import 'package:is_claude_code_driver/service.dart'
     show ClaudeCodeDriverSocket;
 import 'package:is_logbook_client/is_logbook_client.dart' show LogbookReader;
+import 'package:is_teams_module/is_teams_module.dart'
+    show TeamsRequestsAnsweringEvents;
 import 'package:is_web_request_driver/service.dart'
     show WebRequestDriverSocket;
 
@@ -35,25 +41,33 @@ Future<void> main() async {
   final webDriverSocket = Platform.environment['AIRLOCK_WEB_DRIVER_SOCKET'];
   final modelDriverSocket =
       Platform.environment['AIRLOCK_MODEL_DRIVER_SOCKET'];
+  final teamsSignInName = Platform.environment['AIRLOCK_TEAMS_SIGN_IN'];
   if (recordSocket == null ||
       readSocket == null ||
       webDriverSocket == null ||
-      modelDriverSocket == null) {
+      modelDriverSocket == null ||
+      teamsSignInName == null) {
     stderr.writeln(
       'airlock service: set AIRLOCK_RECORD_SOCKET, '
-      'AIRLOCK_RECORD_READ_SOCKET, AIRLOCK_WEB_DRIVER_SOCKET and '
-      'AIRLOCK_MODEL_DRIVER_SOCKET',
+      'AIRLOCK_RECORD_READ_SOCKET, AIRLOCK_WEB_DRIVER_SOCKET, '
+      'AIRLOCK_MODEL_DRIVER_SOCKET and AIRLOCK_TEAMS_SIGN_IN',
     );
     exitCode = 64;
     return;
   }
+  final teamsSignIn =
+      SignIn.parse(teamsSignInName) ??
+      (throw StateError('AIRLOCK_TEAMS_SIGN_IN: not a sign-in name'));
 
   final recordIndex = RecordIndex();
   final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
     RecordClient(recordSocket),
     decide: _decide,
     recordedOn: recordIndex.recordedOn,
-    placeToJson: (place) => place.toJson(),
+    rawEntry: recordIndex.raw,
+    registryByScheme: {
+      'teams': (module: const TeamsRequestsAnsweringEvents(), signIn: teamsSignIn),
+    },
   );
 
   final proposalsEnabled = switch (
@@ -90,17 +104,38 @@ Decision _decide(
   WhatMayLeaveThisMachine rules,
 ) => switch (reach) {
   Reads() || Writes() || Starts() => const Allow(by: DecidedBy.rules),
-  MakesWebRequest(:final request) => rules.allowsWebRequest(
-    request.origin,
-    request.signIn,
-  )
-      ? const Allow(by: DecidedBy.rules)
-      : Deny(
-          'not granted: ${request.origin} as '
-          '${request.signIn ?? 'no sign-in'}',
-          by: DecidedBy.rules,
-        ),
+  AnswersEvent(:final requests) => _grantEach(rules, requests),
+  FetchesFromWeb(:final origin, :final signIn) => _grant(rules, origin, signIn),
   CallsTheModel(:final signIn) => rules.allowsModelCall(signIn)
       ? const Allow(by: DecidedBy.rules)
       : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
 };
+
+/// Every one of [requests] granted together: an [AnswersEvent] sends them
+/// all or none, so the first missing grant denies the whole reach.
+Decision _grantEach(WhatMayLeaveThisMachine rules, List<Request> requests) {
+  for (final request in requests) {
+    final decision = _grant(rules, request.origin, request.signIn);
+    if (decision is Deny) return decision;
+  }
+  return const Allow(by: DecidedBy.rules);
+}
+
+/// Whether [rules] grants a request to [origin] as [signIn]. Nothing is
+/// relied on beyond the rules yet: `leasedNow` and `pooled` are both empty
+/// until loop_launcher's lease-tracking entries exist (task 49) — verified
+/// against is_flight_rules 0.3.0's own source that an empty `leasedNow`/
+/// `pooled` behaves exactly as the old `allowsWebRequest` did.
+Decision _grant(WhatMayLeaveThisMachine rules, Origin origin, SignIn? signIn) =>
+    switch (rules.grantFor(
+      origin,
+      signIn,
+      leasedNow: const {},
+      pooled: const {},
+    )) {
+      null => Deny(
+        'not granted: $origin as ${signIn ?? 'no sign-in'}',
+        by: DecidedBy.rules,
+      ),
+      _ => const Allow(by: DecidedBy.rules),
+    };
