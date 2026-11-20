@@ -255,14 +255,57 @@ void main() {
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       expect(lines, contains(contains('-> ran created=abc-123')));
-      expect(
-        lines,
-        contains(predicate<String>((l) => l.endsWith('-> ran'))),
-      );
+      expect(lines, contains(contains('-> ran"}')));
       expect(
         lines,
         contains(contains('-> ran refusedBecause=error.code')),
       );
+    },
+  );
+
+  test(
+    'a Returned entry for a WebRequestOutcome with no proposal still '
+    'carries its redirects and kept body, not just the human line',
+    () async {
+      final origin = Origin.parse('https://smba.trafficmanager.net')!;
+      final a = airlock();
+      final redirectedTo = RedirectedTo.of(
+        Uri.parse('https://smba.trafficmanager.net/moved'),
+      )!;
+
+      Action<Object?> send() => Program.web.run<Outcome<WebResponse>>(
+        WebRequest(
+          origin,
+          body: teamsMessageBody,
+          projection: Projection.teamsMessageFromModelReply,
+          drawnFrom: EntryId.of(utf8.encode('fake proposed')),
+          signIn: SignIn.parse('cam-teams'),
+        ),
+        then: Done.new,
+      );
+
+      await send().next(
+        path(
+          a,
+          onSend: (r) => Ran(
+            WebResponse(
+              status: 200,
+              body: const TextBody('hello'),
+              redirects: [redirectedTo],
+            ),
+          ),
+        ).at(1),
+      );
+
+      final lines = _entries(harness.journalDir).map(utf8.decode).toList();
+      final resultLine = lines.firstWhere((l) => l.startsWith('result\n'));
+      final body =
+          jsonDecode(resultLine.substring(resultLine.indexOf('{')))
+              as Map<String, Object?>;
+      final result = body['result'] as Map<String, Object?>;
+      final output = result['output'] as Map<String, Object?>;
+      expect(output['redirects'], [redirectedTo.toString()]);
+      expect(output['body'], {'kind': 'text', 'text': 'hello'});
     },
   );
 
