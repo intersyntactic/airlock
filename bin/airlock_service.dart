@@ -22,6 +22,15 @@
 ///                               user; unset or anything else means no
 ///                               `proposed` entry is acted on (task 20,
 ///                               Nick's call — flag only, no version check).
+///   AIRLOCK_WEB_DRIVER_USER,
+///   AIRLOCK_MODEL_DRIVER_USER  the uid that driver's own process runs as
+///                               (`UserId.parse`), checked against the
+///                               kernel's own report of who connects
+///                               (`is_unix_socket_user_check`) — required,
+///                               not derived from the socket file, which
+///                               would trust whoever created the file
+///                               first rather than something independent
+///                               of the driver it checks (task 31).
 ///   AIRLOCK_WEB_DRIVER_RELEASE,
 ///   AIRLOCK_MODEL_DRIVER_RELEASE
 ///                               optional: infra's own `<sha>-<digest>`
@@ -29,8 +38,7 @@
 ///                               for the release that driver's socket is
 ///                               expected to be running. Unset means no
 ///                               release is checked for that driver — only
-///                               its uid, read from its own socket file's
-///                               ownership (task 31).
+///                               its user (task 31).
 library;
 
 import 'dart:io';
@@ -67,6 +75,8 @@ Future<void> main() async {
   final teamsSignIn =
       SignIn.parse(teamsSignInName) ??
       (throw StateError('AIRLOCK_TEAMS_SIGN_IN: not a sign-in name'));
+  final webDriverUser = _expectedUser('AIRLOCK_WEB_DRIVER_USER');
+  final modelDriverUser = _expectedUser('AIRLOCK_MODEL_DRIVER_USER');
 
   final recordIndex = RecordIndex();
   final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
@@ -99,14 +109,14 @@ Future<void> main() async {
       WebRequestDriverSocket(
         File(webDriverSocket),
         checkDriver: checkDriverRelease(
-          expectedUid: await socketOwnerUid(File(webDriverSocket)),
+          expectedUser: webDriverUser,
           expected: _expectedRelease('AIRLOCK_WEB_DRIVER_RELEASE'),
         ),
       ),
       ClaudeCodeDriverSocket(
         File(modelDriverSocket),
         checkDriver: checkDriverRelease(
-          expectedUid: await socketOwnerUid(File(modelDriverSocket)),
+          expectedUser: modelDriverUser,
           expected: _expectedRelease('AIRLOCK_MODEL_DRIVER_RELEASE'),
         ),
       ),
@@ -127,6 +137,17 @@ DriverRelease? _expectedRelease(String name) {
   if (value == null) return null;
   return DriverRelease.parseExpected(value) ??
       (throw StateError('$name: not a release id ("<sha>-<digest>")'));
+}
+
+/// The uid env var [name] names, as a [UserId] — required, not derived
+/// from anything a driver could itself influence: unset or unparseable
+/// (including the uids `UserId.parse` refuses: the kernel's overflow uid,
+/// `nobody`, or no credentials at all) is a startup error.
+UserId _expectedUser(String name) {
+  final value = Platform.environment[name];
+  final number = value == null ? null : int.tryParse(value);
+  return (number == null ? null : UserId.parse(number)) ??
+      (throw StateError('$name: set this to the driver\'s own uid'));
 }
 
 /// Files, writes and programs carry nothing off this machine by

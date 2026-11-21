@@ -258,6 +258,15 @@ packages:
       url: "https://github.com/intersyntactic/teams_module"
     source: git
     version: "0.0.1"
+  is_unix_socket_user_check:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: e3710c46b09737116b77ec3fca3fe0abbc7a8291
+      resolved-ref: e3710c46b09737116b77ec3fca3fe0abbc7a8291
+      url: "https://github.com/intersyntactic/unix_socket_user_check"
+    source: git
+    version: "0.1.0"
   is_web_request_driver:
     dependency: "direct main"
     description:

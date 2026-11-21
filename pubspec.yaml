@@ -23,6 +23,10 @@ dependencies:
     git:
       url: https://github.com/intersyntactic/teams_module
       ref: 9e4c16dd24767cda7414aeb9c1e9b902f2f6c4bd
+  is_unix_socket_user_check:
+    git:
+      url: https://github.com/intersyntactic/unix_socket_user_check
+      ref: e3710c46b09737116b77ec3fca3fe0abbc7a8291
 
 dev_dependencies:
   analyzer: ^14.7.0

@@ -101,30 +101,86 @@ void main() {
     });
   });
 
-  group('checkDriverRelease off Linux (this test machine)', () {
-    test('is a no-op: never refuses, regardless of expectedUid', () async {
-      final check = checkDriverRelease(
-        expectedUid: 0,
-        expected: DriverRelease.parseExpected('${'a' * 40}-${'b' * 12}'),
+  group('checkDriverRelease, over a real Unix domain socket', () {
+    late Directory directory;
+    late ServerSocket server;
+    late Socket client;
+    late UserId me;
+
+    setUp(() async {
+      directory = await Directory.systemTemp.createTemp(
+        'driver_release_test',
       );
-      // A real Socket is unnecessary off Linux: checkDriverRelease returns
-      // before touching it. A loopback pair stands in so the type lines up.
-      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      final client = await Socket.connect(
-        InternetAddress.loopbackIPv4,
-        server.port,
+      final address = InternetAddress(
+        '${directory.path}/socket',
+        type: InternetAddressType.unix,
       );
+      server = await ServerSocket.bind(address, 0);
+      client = await Socket.connect(address, 0);
+      final result = await Process.run('id', ['-u']);
+      final out = result.stdout;
+      me = UserId.parse(
+        int.parse((out is String ? out : '').trim()),
+      )!;
+    });
+
+    tearDown(() async {
+      client.destroy();
+      await server.close();
+      await directory.delete(recursive: true);
+    });
+
+    test('allows the expected user through when no release is expected', () async {
+      final check = checkDriverRelease(expectedUser: me);
+      expect(await check(client), isNull);
+    });
+
+    test('refuses a user that is not the expected one', () async {
+      final notMe = UserId.parse(me.number == 0 ? 1 : 0)!;
+      final check = checkDriverRelease(expectedUser: notMe);
+      expect(await check(client), isNotNull);
+    });
+
+    test(
+      'refuses when a release is expected but this machine can\'t read '
+      'one (off Linux, or no per-release slice)',
+      () async {
+        final check = checkDriverRelease(
+          expectedUser: me,
+          expected: DriverRelease.parseExpected('${'a' * 40}-${'b' * 12}'),
+        );
+        if (Platform.isLinux) {
+          markTestSkipped(
+            'this machine can read a real release; see driverReleaseOf',
+          );
+          return;
+        }
+        expect(await check(client), isNotNull);
+      },
+    );
+  });
+
+  group('driverReleaseOf off Linux (this test machine)', () {
+    test('is null', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'driver_release_test',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final address = InternetAddress(
+        '${directory.path}/socket',
+        type: InternetAddressType.unix,
+      );
+      final server = await ServerSocket.bind(address, 0);
+      final client = await Socket.connect(address, 0);
       addTearDown(() async {
         client.destroy();
         await server.close();
       });
-      expect(await check(client), isNull);
-    });
-  });
-
-  group('socketOwnerUid off Linux (this test machine)', () {
-    test('is null', () async {
-      expect(await socketOwnerUid(File('/does/not/matter')), isNull);
+      if (Platform.isLinux) {
+        markTestSkipped('driverReleaseOf reads a real release on Linux');
+        return;
+      }
+      expect(await driverReleaseOf(client), isNull);
     });
   });
 }

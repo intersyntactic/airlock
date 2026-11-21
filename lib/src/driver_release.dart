@@ -15,17 +15,34 @@
 /// secret. Checking the sha alone would accept a reviewed binary started
 /// under an unreviewed unit; this checks both.
 ///
-/// Linux-only: `SO_PEERPIDFD` and `/proc` don't exist on the macOS boxes
-/// this also runs on in development, so every function here is a no-op
-/// off Linux rather than a failure.
+/// The user check is `is_unix_socket_user_check`'s own (Nick's brief,
+/// `verified-wall` `docs/PEER-UID-BRIEF.md`: one package for every peer-uid
+/// read instead of each caller's own copy) — never a hardcoded or
+/// socket-file-derived uid, which would trust whoever created the file
+/// first rather than something independent of the driver it checks.
+///
+/// Only the release half is Linux-only: `SO_PEERPIDFD` and `/proc` don't
+/// exist on the macOS boxes this also runs on in development, so the
+/// release check is a no-op off Linux rather than a failure. The user
+/// check runs everywhere `is_unix_socket_user_check` reads a kernel for
+/// (Linux's `SO_PEERCRED`, macOS's `LOCAL_PEERCRED`).
 library;
 
 import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:is_unix_socket_user_check/is_unix_socket_user_check.dart';
+
+// [UserId] is part of [checkDriverRelease]'s own signature, so a caller
+// building one needs it without a second direct dependency on this
+// package.
+export 'package:is_unix_socket_user_check/is_unix_socket_user_check.dart'
+    show UserId;
+
 const _solSocket = 1;
-const _soPeerCred = 17;
+// The asm-generic value, correct for the x86-64 and arm64 boxes this runs
+// on; wrong on alpha, mips, parisc and sparc, which define their own.
 const _soPeerPidfd = 77;
 
 final int Function(int) _libcClose = ffi.DynamicLibrary.process()
@@ -90,29 +107,12 @@ final class DriverRelease {
   String toString() => unit.isEmpty ? '$sha-$digest' : '$unit@$sha-$digest';
 }
 
-/// The peer uid and release of whoever is on the other end of [socket], as
-/// the kernel reports them. Both null off Linux, or where the kernel calls
+/// The release of whoever is on the other end of [socket], read from its
+/// cgroup via `SO_PEERPIDFD`. Null off Linux, or where the kernel calls
 /// this needs aren't available (no `SO_PEERPIDFD`, an unreadable `/proc`
 /// entry, or a peer process whose cgroup isn't a per-release slice).
-Future<({int? uid, DriverRelease? release})> driverIdentityOf(
-  Socket socket,
-) async {
-  if (!Platform.isLinux) return (uid: null, release: null);
-  return (uid: _peerUid(socket), release: await _releaseFromPeerPidfd(socket));
-}
-
-int? _peerUid(Socket socket) {
-  try {
-    final bytes = socket.getRawOption(
-      RawSocketOption(_solSocket, _soPeerCred, Uint8List(12)),
-    );
-    return ByteData.sublistView(bytes).getUint32(4, Endian.host);
-  } on SocketException {
-    return null;
-  }
-}
-
-Future<DriverRelease?> _releaseFromPeerPidfd(Socket socket) async {
+Future<DriverRelease?> driverReleaseOf(Socket socket) async {
+  if (!Platform.isLinux) return null;
   final int pidfd;
   try {
     final bytes = socket.getRawOption(
@@ -146,46 +146,27 @@ Future<int?> _pidOfPidfd(int pidfd) async {
   return null;
 }
 
-/// The uid owning [socket]'s file, as `stat` reports it — Dart's own
-/// [FileStat] has no uid field to read directly. Null off Linux, where
-/// nothing here checks it anyway, or if [socket] doesn't exist yet.
-Future<int?> socketOwnerUid(File socket) async {
-  if (!Platform.isLinux) return null;
-  final result = await Process.run('stat', ['-c', '%u', socket.path]);
-  final out = result.stdout;
-  return result.exitCode == 0 && out is String ? int.tryParse(out.trim()) : null;
-}
-
 /// Builds a `CheckDriver` (is_web_request_driver's and
 /// is_claude_code_driver's own matching typedef) that refuses a driver
-/// connection unless the kernel says it's running as [expectedUid] — reach
-/// for this from the driver's own socket file ownership
-/// ([socketOwnerUid]), not a hardcoded value — and, when [expected] is
-/// given, that its release's sha and digest match. A driver this can't
-/// read any identity for at all (a peer whose cgroup isn't a per-release
-/// slice) is refused whenever [expected] is given, and passed through
-/// untouched otherwise: matching is opt-in per driver, so a release check
-/// is a no-op until something actually sets an expectation. The uid check
-/// is skipped (not refused) when [expectedUid] is null — the driver's
-/// socket file didn't exist yet to read an owner from — since the
-/// driver's own service already enforces the matching check from its
-/// side; this one is defense in depth, not the only gate. Off Linux
-/// there's no uid or release to read at all (the library doc), so the
-/// whole check is a no-op there too, same as a development box with
-/// nothing to verify against.
+/// connection unless `is_unix_socket_user_check` says it's running as
+/// [expectedUser] — an unreadable peer user is refused, never skipped —
+/// and, when [expected] is given, that its release's sha and digest
+/// match. A driver this can't read any release for at all (a peer whose
+/// cgroup isn't a per-release slice, or off Linux, where there's nothing
+/// to read) is refused whenever [expected] is given, and passed through
+/// untouched otherwise: release matching is opt-in per driver, so it's a
+/// no-op until something actually sets an expectation.
 Future<String?> Function(Socket) checkDriverRelease({
-  required int? expectedUid,
+  required UserId expectedUser,
   DriverRelease? expected,
 }) {
+  final userCheck = SocketUserCheck.only(expectedUser);
   return (Socket driver) async {
-    if (!Platform.isLinux) return null;
-    final identity = await driverIdentityOf(driver);
-    if (expectedUid != null && identity.uid != expectedUid) {
-      return 'connected as uid ${identity.uid}, not the driver\'s own '
-          'uid $expectedUid';
+    if (!userCheck.allows(driver)) {
+      return 'not connected as the driver\'s own user $expectedUser';
     }
     if (expected == null) return null;
-    final release = identity.release;
+    final release = await driverReleaseOf(driver);
     if (release == null) {
       return 'no readable release identity, and $expected was expected';
     }
