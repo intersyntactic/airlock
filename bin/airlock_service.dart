@@ -22,6 +22,15 @@
 ///                               user; unset or anything else means no
 ///                               `proposed` entry is acted on (task 20,
 ///                               Nick's call — flag only, no version check).
+///   AIRLOCK_WEB_DRIVER_RELEASE,
+///   AIRLOCK_MODEL_DRIVER_RELEASE
+///                               optional: infra's own `<sha>-<digest>`
+///                               release id (`DriverRelease.parseExpected`)
+///                               for the release that driver's socket is
+///                               expected to be running. Unset means no
+///                               release is checked for that driver — only
+///                               its uid, read from its own socket file's
+///                               ownership (task 31).
 library;
 
 import 'dart:io';
@@ -87,8 +96,20 @@ Future<void> main() async {
     subscribe: () => LogbookReader(readSocket).subscribe(),
     airlock: airlock,
     drivers: [
-      WebRequestDriverSocket(File(webDriverSocket)),
-      ClaudeCodeDriverSocket(File(modelDriverSocket)),
+      WebRequestDriverSocket(
+        File(webDriverSocket),
+        checkDriver: checkDriverRelease(
+          expectedUid: await socketOwnerUid(File(webDriverSocket)),
+          expected: _expectedRelease('AIRLOCK_WEB_DRIVER_RELEASE'),
+        ),
+      ),
+      ClaudeCodeDriverSocket(
+        File(modelDriverSocket),
+        checkDriver: checkDriverRelease(
+          expectedUid: await socketOwnerUid(File(modelDriverSocket)),
+          expected: _expectedRelease('AIRLOCK_MODEL_DRIVER_RELEASE'),
+        ),
+      ),
     ],
     proposalsEnabled: proposalsEnabled,
     recordIndex: recordIndex,
@@ -96,6 +117,16 @@ Future<void> main() async {
     writeLogbookEntry: airlock.writeLogbookEntry,
     say: stderr.writeln,
   );
+}
+
+/// The release named by the env var [name], or null if it's unset. Set but
+/// unparseable is a startup error, not a silently-ignored typo — unlike an
+/// unset var, which deliberately means "don't check".
+DriverRelease? _expectedRelease(String name) {
+  final value = Platform.environment[name];
+  if (value == null) return null;
+  return DriverRelease.parseExpected(value) ??
+      (throw StateError('$name: not a release id ("<sha>-<digest>")'));
 }
 
 /// Files, writes and programs carry nothing off this machine by
