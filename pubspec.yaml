@@ -23,6 +23,7 @@ dependencies:
     git:
       url: https://github.com/intersyntactic/teams_module
       ref: 9e4c16dd24767cda7414aeb9c1e9b902f2f6c4bd
+  is_unix_socket_user_check: ^0.1.0
 
 dev_dependencies:
   analyzer: ^14.7.0

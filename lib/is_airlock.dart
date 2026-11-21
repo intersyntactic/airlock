@@ -30,6 +30,7 @@ export 'package:is_effects/is_effects.dart';
 export 'package:is_flight_rules/is_flight_rules.dart';
 
 export 'src/airlock_subscriber.dart';
+export 'src/driver_release.dart';
 export 'src/record_client.dart';
 export 'src/record_index.dart';
 export 'src/recorded_airlock.dart';

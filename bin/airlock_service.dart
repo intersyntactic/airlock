@@ -22,6 +22,27 @@
 ///                               user; unset or anything else means no
 ///                               `proposed` entry is acted on (task 20,
 ///                               Nick's call — flag only, no version check).
+///   AIRLOCK_WEB_DRIVER_USER,
+///   AIRLOCK_MODEL_DRIVER_USER  the user that driver's own process runs
+///                               as, by name or numeric uid, checked
+///                               against the kernel's own report of who
+///                               connects (`is_unix_socket_user_check`) —
+///                               required, not derived from the socket
+///                               file, which would trust whoever created
+///                               the file first rather than something
+///                               independent of the driver it checks.
+///   AIRLOCK_WEB_DRIVER_RELEASE,
+///   AIRLOCK_MODEL_DRIVER_RELEASE
+///                               optional: infra's own `<sha>-<digest>`
+///                               release id (`DriverRelease.parseExpected`)
+///                               for the release that driver's socket is
+///                               expected to be running. Unset means no
+///                               release is checked for that driver — only
+///                               its user. Pinned exactly: changing a
+///                               driver's release means changing this var
+///                               in the same deploy, or the airlock
+///                               refuses every one of that driver's
+///                               requests until it does.
 library;
 
 import 'dart:io';
@@ -42,15 +63,47 @@ Future<void> main() async {
   final modelDriverSocket =
       Platform.environment['AIRLOCK_MODEL_DRIVER_SOCKET'];
   final teamsSignInName = Platform.environment['AIRLOCK_TEAMS_SIGN_IN'];
+  final webDriverUserName = Platform.environment['AIRLOCK_WEB_DRIVER_USER'];
+  final modelDriverUserName =
+      Platform.environment['AIRLOCK_MODEL_DRIVER_USER'];
   if (recordSocket == null ||
       readSocket == null ||
       webDriverSocket == null ||
       modelDriverSocket == null ||
-      teamsSignInName == null) {
+      teamsSignInName == null ||
+      webDriverUserName == null ||
+      modelDriverUserName == null) {
     stderr.writeln(
       'airlock service: set AIRLOCK_RECORD_SOCKET, '
       'AIRLOCK_RECORD_READ_SOCKET, AIRLOCK_WEB_DRIVER_SOCKET, '
-      'AIRLOCK_MODEL_DRIVER_SOCKET and AIRLOCK_TEAMS_SIGN_IN',
+      'AIRLOCK_MODEL_DRIVER_SOCKET, AIRLOCK_TEAMS_SIGN_IN, '
+      'AIRLOCK_WEB_DRIVER_USER and AIRLOCK_MODEL_DRIVER_USER',
+    );
+    exitCode = 64;
+    return;
+  }
+  // A restart cannot fix a bad uid or release id either, so every one of
+  // these failures ends the same way as the block above: systemd's own
+  // unit file stops restart-looping on exit 64 specifically
+  // (RestartPreventExitStatus=64), never on an uncaught exception's exit.
+  final webDriverUser = userNamedBy(webDriverUserName);
+  final modelDriverUser = userNamedBy(modelDriverUserName);
+  if (webDriverUser == null || modelDriverUser == null) {
+    stderr.writeln(
+      'airlock service: AIRLOCK_WEB_DRIVER_USER and '
+      'AIRLOCK_MODEL_DRIVER_USER must each name a real user, by name or '
+      'id — not unset, not the kernel\'s overflow uid or nobody',
+    );
+    exitCode = 64;
+    return;
+  }
+  final webDriverRelease = _expectedRelease('AIRLOCK_WEB_DRIVER_RELEASE');
+  final modelDriverRelease = _expectedRelease('AIRLOCK_MODEL_DRIVER_RELEASE');
+  if (!webDriverRelease.ok || !modelDriverRelease.ok) {
+    stderr.writeln(
+      'airlock service: AIRLOCK_WEB_DRIVER_RELEASE and '
+      'AIRLOCK_MODEL_DRIVER_RELEASE, when set, must be a release id '
+      '("<sha>-<digest>")',
     );
     exitCode = 64;
     return;
@@ -87,8 +140,20 @@ Future<void> main() async {
     subscribe: () => LogbookReader(readSocket).subscribe(),
     airlock: airlock,
     drivers: [
-      WebRequestDriverSocket(File(webDriverSocket)),
-      ClaudeCodeDriverSocket(File(modelDriverSocket)),
+      WebRequestDriverSocket(
+        File(webDriverSocket),
+        checkDriver: checkDriverRelease(
+          expectedUser: webDriverUser,
+          expected: webDriverRelease.release,
+        ),
+      ),
+      ClaudeCodeDriverSocket(
+        File(modelDriverSocket),
+        checkDriver: checkDriverRelease(
+          expectedUser: modelDriverUser,
+          expected: modelDriverRelease.release,
+        ),
+      ),
     ],
     proposalsEnabled: proposalsEnabled,
     recordIndex: recordIndex,
@@ -96,6 +161,17 @@ Future<void> main() async {
     writeLogbookEntry: airlock.writeLogbookEntry,
     say: stderr.writeln,
   );
+}
+
+/// The release named by the env var [name]: [release] is null when the var
+/// is unset (deliberately means "don't check"), and [ok] is false only
+/// when it was set but unparseable — a startup failure, not a silently
+/// ignored typo.
+({DriverRelease? release, bool ok}) _expectedRelease(String name) {
+  final value = Platform.environment[name];
+  if (value == null) return (release: null, ok: true);
+  final release = DriverRelease.parseExpected(value);
+  return (release: release, ok: release != null);
 }
 
 /// Files, writes and programs carry nothing off this machine by
