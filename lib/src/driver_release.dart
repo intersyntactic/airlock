@@ -5,8 +5,7 @@
 /// packages: `Future<String?> Function(Socket driver)`, run on every
 /// connection before a request is sent).
 ///
-/// Design settled via web-driver-a4 (18:06 19 Nov) and web-request-driver-6a
-/// (18:30 21 Nov), from `enspyrco/infra`#408's per-release systemd slice and
+/// From `enspyrco/infra`#408's per-release systemd slice and
 /// `scripts/lib/release_deploy.dart`'s own naming:
 /// `system-release_<sha>_<digest>.slice/intersyntactic-<unit>.service`,
 /// where `digest` is a SHA-256 over the release's *config* (its systemd

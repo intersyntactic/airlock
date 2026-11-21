@@ -38,7 +38,11 @@
 ///                               for the release that driver's socket is
 ///                               expected to be running. Unset means no
 ///                               release is checked for that driver — only
-///                               its user.
+///                               its user. Pinned exactly: changing a
+///                               driver's release means changing this var
+///                               in the same deploy, or the airlock
+///                               refuses every one of that driver's
+///                               requests until it does.
 library;
 
 import 'dart:io';
