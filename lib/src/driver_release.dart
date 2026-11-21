@@ -145,6 +145,24 @@ Future<int?> _pidOfPidfd(int pidfd) async {
   return null;
 }
 
+/// [value] as a [UserId]: a numeric uid as itself, a name resolved the
+/// same way every driver's own `bin/` resolves its `*_CALLER` (`id -u`).
+/// Null for anything `id` or [UserId.parse] refuses, or a value shaped
+/// like a command-line option — starting with `-` — which `id` could
+/// otherwise read as a flag instead of a name, same guard as
+/// `is_logbook`'s own `_uidOfUser`.
+UserId? userNamedBy(String value) {
+  if (value.startsWith('-')) return null;
+  final uid = int.tryParse(value) ?? _resolveUid(value);
+  return uid == null ? null : UserId.parse(uid);
+}
+
+int? _resolveUid(String user) {
+  final result = Process.runSync('id', ['-u', user]);
+  final out = result.stdout;
+  return result.exitCode == 0 && out is String ? int.tryParse(out.trim()) : null;
+}
+
 /// Builds a `CheckDriver` (is_web_request_driver's and
 /// is_claude_code_driver's own matching typedef) that refuses a driver
 /// connection unless `is_unix_socket_user_check` says it's running as

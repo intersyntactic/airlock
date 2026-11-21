@@ -86,8 +86,8 @@ Future<void> main() async {
   // these failures ends the same way as the block above: systemd's own
   // unit file stops restart-looping on exit 64 specifically
   // (RestartPreventExitStatus=64), never on an uncaught exception's exit.
-  final webDriverUser = _userOf(webDriverUserName);
-  final modelDriverUser = _userOf(modelDriverUserName);
+  final webDriverUser = userNamedBy(webDriverUserName);
+  final modelDriverUser = userNamedBy(modelDriverUserName);
   if (webDriverUser == null || modelDriverUser == null) {
     stderr.writeln(
       'airlock service: AIRLOCK_WEB_DRIVER_USER and '
@@ -172,23 +172,6 @@ Future<void> main() async {
   if (value == null) return (release: null, ok: true);
   final release = DriverRelease.parseExpected(value);
   return (release: release, ok: release != null);
-}
-
-/// [value] (a name or a numeric uid, as systemd's own `User=` also takes),
-/// resolved the same way `is_web_request_driver`'s own service does: `id
-/// -u` when not already numeric. Null for anything `id` or [UserId.parse]
-/// refuses (the kernel's overflow uid, `nobody`, or no credentials at
-/// all) — never derived from anything the driver being checked could
-/// itself influence, such as its own socket file.
-UserId? _userOf(String value) {
-  final uid = int.tryParse(value) ?? _resolveUid(value);
-  return uid == null ? null : UserId.parse(uid);
-}
-
-int? _resolveUid(String user) {
-  final result = Process.runSync('id', ['-u', user]);
-  final out = result.stdout;
-  return result.exitCode == 0 && out is String ? int.tryParse(out.trim()) : null;
 }
 
 /// Files, writes and programs carry nothing off this machine by

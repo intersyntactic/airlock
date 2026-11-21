@@ -4,6 +4,32 @@ import 'package:is_airlock/is_airlock.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('userNamedBy', () {
+    test('resolves the current user by name, same as `id -un` prints it', () async {
+      final result = await Process.run('id', ['-un']);
+      final out = result.stdout;
+      final name = (out is String ? out : '').trim();
+      final expected = await Process.run('id', ['-u']);
+      final expectedOut = expected.stdout;
+      final uid = int.parse((expectedOut is String ? expectedOut : '').trim());
+      expect(userNamedBy(name), UserId.parse(uid));
+    });
+
+    test('resolves a numeric uid as itself', () {
+      expect(userNamedBy('0'), UserId.parse(0));
+    });
+
+    test('null for a name id doesn\'t know', () {
+      expect(userNamedBy('no-such-user-driver-release-test'), isNull);
+    });
+
+    test('null for a value shaped like a command-line option, never '
+        'handed to id as one', () {
+      expect(userNamedBy('-u'), isNull);
+      expect(userNamedBy('--version'), isNull);
+    });
+  });
+
   group('DriverRelease.parse', () {
     test('reads the web driver\'s pre-cutover slice (01:49 UTC 20 Nov)', () {
       final release = DriverRelease.parse(
