@@ -1,4 +1,4 @@
-/// Indexes the record's entries by id, so [DecidesAndRecordsActions
+/// Indexes the logbook's entries by id, so [DecidesAndRecordsActions
 /// .recordedOn] can answer without a `get`.
 ///
 /// Under is_logbook 0.2.0 an entry's id is the [ObjectId] of its bytes —
@@ -38,7 +38,7 @@ final class _Indexed {
 
 /// Which trajectory's chain each logbook entry is on, and each one's kind
 /// and content, by id.
-final class RecordIndex {
+final class EntryIndex {
   final _byId = <String, _Indexed>{};
 
   /// [id] roots [trajectory]'s chain: a `users-assigned-to-trajectory`
@@ -62,7 +62,7 @@ final class RecordIndex {
 
   /// Indexes [id] (this entry's own id), with [previous]'s trajectory, if
   /// it is on one — the same chain-walk [root] seeds — [kind] and [body]
-  /// (the entry's bytes after its header, what [recordedOn] gives back).
+  /// (the entry's bytes after its header, what [entryOn] gives back).
   void add(
     ObjectId id, {
     required ObjectId? previous,
@@ -79,10 +79,10 @@ final class RecordIndex {
   }
 
   /// [id]'s own kind, previous and body, exactly as [add] indexed them —
-  /// no trajectory check, unlike [recordedOn]. Only for a caller that has
+  /// no trajectory check, unlike [entryOn]. Only for a caller that has
   /// already established [id] belongs where it's using it some other way
   /// (an admission this package decoded and checked itself, never an id a
-  /// loop handed it): [recordedOn] is the trajectory-checked accessor for
+  /// loop handed it): [entryOn] is the trajectory-checked accessor for
   /// anything a loop names.
   ({String kind, ObjectId? previous, String body})? raw(EntryId id) {
     final indexed = _byId[id.hex];
@@ -104,15 +104,15 @@ final class RecordIndex {
 
   /// [entry]'s kind and content, when it belongs to [trajectory]: on its
   /// own chain, or a [outcomeOfProposedActionKind] entry kept for one of
-  /// its proposals. [Refused] with why not. Never [get]s the record:
+  /// its proposals. [Refused] with why not. Never gets the logbook:
   /// everything needed already went by on the subscription (airlock-api-04,
   /// 18 Nov).
-  Future<Outcome<({String kind, String body})>> recordedOn(
+  Future<Outcome<({String kind, String body})>> entryOn(
     TrajectoryId trajectory,
     EntryId entry,
   ) async {
     final indexed = _byId[entry.hex];
-    if (indexed == null) return Refused('${entry.hex} is not recorded');
+    if (indexed == null) return Refused('${entry.hex} is not in the logbook');
     if (indexed.trajectory == trajectory || _resultBelongsTo(indexed, trajectory)) {
       return Ran((kind: indexed.kind, body: indexed.body));
     }

@@ -22,7 +22,7 @@ final class LogbookServiceHarness {
     this._dir,
   );
 
-  /// The socket a [RecordClient] connects to.
+  /// The socket a [LogbookClient] connects to.
   final String socketPath;
 
   /// The socket `get`/`tip`/`subscribe` connect to, null unless [start] was

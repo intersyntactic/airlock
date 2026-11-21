@@ -1,19 +1,19 @@
-/// Running the airlock as a record subscriber: building one [Trajectory]
+/// Running the airlock as a logbook subscriber: building one [Trajectory]
 /// per path from its `event-admitted-to-mission` and
 /// `users-assigned-to-trajectory` entries, and reacting to each
 /// `action-proposed-by-agent-loop` entry on a trajectory's own chain by
-/// deciding, recording and running its driver.
+/// deciding, writing to the logbook and running its driver.
 ///
 /// "The airlock has no door of its own" (lib/src/proposal.dart, 0.7.1): a
 /// loop never reaches this service directly. It only ever follows the
-/// record.
+/// logbook.
 ///
-/// A decision starts a chain no trajectory owns (the journal refuses any
+/// A decision starts a chain no trajectory owns (the logbook refuses any
 /// other write there as `not-owner`, since only a trajectory's own loop
 /// user may extend its chain — airlock-api-04 and teams-module-e2, 17 Nov),
-/// so the journal's tip check gives this package no "one decision per
+/// so the logbook's tip check gives this package no "one decision per
 /// proposal" for free. [runAirlockService] rebuilds which proposals already
-/// have an answer from the record itself before deciding anything new, by
+/// have an answer from the logbook itself before deciding anything new, by
 /// reading every `outcome-of-proposed-action` entry's `proposed` in
 /// the backlog first.
 library;
@@ -34,7 +34,7 @@ import 'package:is_logbook/service.dart' show Kind;
 import 'package:is_logbook_client/is_logbook_client.dart'
     show CaughtUp, Entry, ObjectId, Subscribed;
 
-import 'record_index.dart';
+import 'entry_index.dart';
 
 final _admittedKind = Kind.parse('event-admitted-to-mission')!;
 final _assignedKind = Kind.parse('users-assigned-to-trajectory')!;
@@ -45,7 +45,7 @@ final _resultKind = Kind.parse(outcomeOfProposedActionKind)!;
 /// [Entry.previous]) is the [ObjectId] of the entry's bytes — the same
 /// sha256 [EntryId.of] computes over an entry's object text — so chain
 /// identity and content identity are now one id space (see
-/// lib/src/record_index.dart). A proposal's wire identity
+/// lib/src/entry_index.dart). A proposal's wire identity
 /// ([Trajectory.consider]'s `proposed`, and the `proposed` field
 /// [readOutcomeOfProposedAction] reads back) is still computed as
 /// [EntryId.of] the entry's `recorded` bytes directly, since that is
@@ -53,7 +53,7 @@ final _resultKind = Kind.parse(outcomeOfProposedActionKind)!;
 /// type.
 
 /// `users-assigned-to-trajectory`'s body: logbook-07 confirmed the shape,
-/// fixed by the record and refused in any other (loop_launcher's task 16
+/// fixed by the logbook and refused in any other (loop_launcher's task 16
 /// is to hold this type for both sides so neither keeps a copy; written to
 /// the exact shape until then).
 final class _Assigned {
@@ -105,7 +105,7 @@ final class _Buffered {
 }
 
 /// Runs the airlock until [subscribe]'s stream ends, which it never
-/// should: the caller treats a return as the record going away.
+/// should: the caller treats a return as the logbook going away.
 ///
 /// A trajectory is built once it has both its rules (from
 /// `event-admitted-to-mission`) and its suit (from
@@ -119,10 +119,10 @@ final class _Buffered {
 /// than acted on immediately, since a later `returned` entry in that same
 /// backlog may show it was already answered in an earlier run of this
 /// service. Once caught up, every still-unanswered buffered proposal is
-/// considered, in the record's order, and every later one is considered as
+/// considered, in the logbook's order, and every later one is considered as
 /// it arrives.
 ///
-/// [proposalsEnabled] is the hard gate task 20 asked for: until the record
+/// [proposalsEnabled] is the hard gate task 20 asked for: until the logbook
 /// enforces that a trajectory's chain takes entries only from its own loop
 /// user, any loop user could write a `proposed` entry onto any trajectory's
 /// chain, and the airlock would act on it as that trajectory's own. While
@@ -136,8 +136,8 @@ Future<void> runAirlockService({
   airlock,
   required Iterable<CarriesOutActions> drivers,
   required bool proposalsEnabled,
-  required RecordIndex recordIndex,
-  required Future<void> Function(EntryId proposed, String why) recordRejection,
+  required EntryIndex entryIndex,
+  required Future<void> Function(EntryId proposed, String why) writeRejection,
   required Future<void> Function(String line) writeLogbookEntry,
   required void Function(String line) say,
 }) async {
@@ -182,7 +182,7 @@ Future<void> runAirlockService({
         '${entry.id.hex}: proposed on ${entry.trajectory.hex}, which has '
         'no rules or suit',
       );
-      await recordRejection(entry.id, why);
+      await writeRejection(entry.id, why);
       return;
     }
     switch (ActionProposedByAgentLoop.read(utf8.decode(entry.body))) {
@@ -190,7 +190,7 @@ Future<void> runAirlockService({
         await trajectory.consider(proposal, proposal.place, proposed: entry.id);
       case Rejected(:final why):
         say('${entry.id.hex}: proposal unreadable: $why');
-        await recordRejection(entry.id, why);
+        await writeRejection(entry.id, why);
     }
   }
 
@@ -199,7 +199,7 @@ Future<void> runAirlockService({
     // not just the kinds this service has a case for — carries its
     // chain's trajectory forward and is findable by EntryId for recordedOn.
     if (item case Entry(:final id, :final previous, :final kind, :final body)) {
-      recordIndex.add(
+      entryIndex.add(
         id,
         previous: previous,
         kind: kind.toString(),
@@ -256,7 +256,7 @@ Future<void> runAirlockService({
           break;
         }
         suitOf[assigned.trajectory] = assigned.suit;
-        recordIndex.root(id, assigned.trajectory);
+        entryIndex.root(id, assigned.trajectory);
         build(assigned.trajectory);
 
       case Entry(:final kind, :final body) when kind == _resultKind:
@@ -268,7 +268,7 @@ Future<void> runAirlockService({
 
       case Entry(:final kind, :final id, recorded: final recorded, :final body)
           when kind == _proposedKind:
-        final onTrajectory = recordIndex.trajectoryOf(id);
+        final onTrajectory = entryIndex.trajectoryOf(id);
         if (onTrajectory == null) {
           // Not on any live trajectory's chain: either stale, or the
           // logbook hasn't yet been made to enforce that a trajectory's

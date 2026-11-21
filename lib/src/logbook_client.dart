@@ -3,7 +3,7 @@
 /// copy of its wire protocol.
 ///
 /// Most entries this package sends start their own chain (`previous`
-/// null): witnessing an arrival and recording a decision are each their
+/// null): witnessing an arrival and writing a decision are each their
 /// own, standalone fact. A result extends the decision it follows, which
 /// [send]'s [previous] is for; only the agent loop appends to a journey
 /// path's own chain.
@@ -15,30 +15,30 @@ import 'package:is_logbook_client/is_logbook_client.dart';
 
 /// The writer refused the entry outright: nothing was added, so sending
 /// it again (once whatever [why] names is fixed) is safe.
-final class RecordRefused implements Exception {
-  const RecordRefused(this.why);
+final class LogbookRefused implements Exception {
+  const LogbookRefused(this.why);
 
   final String why;
 
   @override
-  String toString() => 'RecordRefused: $why';
+  String toString() => 'LogbookRefused: $why';
 }
 
 /// The entry went in, but the writer isn't sure its object did, or there
 /// was no telling what happened at all (the socket unreachable, closed
 /// early, or silent past the deadline). Sending the same fact again would
-/// risk recording it twice; this is not safe to retry as is.
-final class RecordFailed implements Exception {
-  const RecordFailed(this.why);
+/// risk writing it twice; this is not safe to retry as is.
+final class LogbookFailed implements Exception {
+  const LogbookFailed(this.why);
 
   final String why;
 
   @override
-  String toString() => 'RecordFailed: $why';
+  String toString() => 'LogbookFailed: $why';
 }
 
-final class RecordClient {
-  const RecordClient(this.socketPath);
+final class LogbookClient {
+  const LogbookClient(this.socketPath);
 
   /// The writer service's Unix socket.
   final String socketPath;
@@ -48,9 +48,9 @@ final class RecordClient {
   /// [previous]'s chain, or starting a new one when it is null. Returns
   /// the written entry's id.
   ///
-  /// Throws [RecordRefused] or [RecordFailed] on anything but a plain
+  /// Throws [LogbookRefused] or [LogbookFailed] on anything but a plain
   /// success — never an id on a failure, since a caller that cannot tell
-  /// the two apart could go on as though something had been recorded
+  /// the two apart could go on as though something had been written
   /// when nothing was, or send it again when it already had.
   /// [AlreadyRecorded] counts as success: these exact bytes, kind and
   /// previous are already in, by this call or an earlier one.
@@ -64,15 +64,15 @@ final class RecordClient {
     ).write(Kind.parse(kind)!, body, previous: previous);
     return switch (result) {
       Written(:final entry) || AlreadyRecorded(:final entry) => entry,
-      NotTip() => throw RecordFailed(
+      NotTip() => throw LogbookFailed(
         previous == null
             ? 'this package only ever starts its own chain here, so the '
                   'writer refusing for not being the tip is its own bug'
             : '$previous is no longer the tip',
       ),
-      WriteRefused(:final why) => throw RecordRefused(why),
-      WriteFailed(:final why) => throw RecordFailed(why),
-      Unanswered(:final why) => throw RecordFailed(why),
+      WriteRefused(:final why) => throw LogbookRefused(why),
+      WriteFailed(:final why) => throw LogbookFailed(why),
+      Unanswered(:final why) => throw LogbookFailed(why),
     };
   }
 }
