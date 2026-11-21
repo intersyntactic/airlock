@@ -107,12 +107,12 @@ Future<void> main() async {
     File(modelDriverSockets).readAsStringSync(),
   );
 
-  final recordIndex = RecordIndex();
-  final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
-    RecordClient(recordSocket),
+  final entryIndex = EntryIndex();
+  final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+    LogbookClient(recordSocket),
     decide: _decide,
-    recordedOn: recordIndex.recordedOn,
-    rawEntry: recordIndex.raw,
+    entryOn: entryIndex.entryOn,
+    rawEntry: entryIndex.raw,
     registryByScheme: {
       ExternalSystemScheme.parse('teams')!: (
         module: const TeamsRequestsAnsweringEvents(),
@@ -145,8 +145,8 @@ Future<void> main() async {
       modelDriver,
     ],
     proposalsEnabled: proposalsEnabled,
-    recordIndex: recordIndex,
-    recordRejection: airlock.recordRejection,
+    entryIndex: entryIndex,
+    writeRejection: airlock.writeRejection,
     writeLogbookEntry: airlock.writeLogbookEntry,
     say: stderr.writeln,
   );

@@ -6,11 +6,11 @@ import 'package:is_docking_station/is_docking_station.dart';
 import 'package:is_effects/is_effects.dart';
 import 'package:is_logbook_client/is_logbook_client.dart' show Kind, ObjectId;
 
-import 'record_client.dart';
+import 'logbook_client.dart';
 
 /// The source before an [AddressInExternalSystem]'s first `:`, such as
 /// `teams` of `teams:19:abc@thread.v2` — the same string
-/// [RelayedEvent.source] names. Typed so [RecordedAirlock]'s own registry
+/// [RelayedEvent.source] names. Typed so [Airlock]'s own registry
 /// compares it as a value, not as a bare string.
 final class ExternalSystemScheme {
   const ExternalSystemScheme._(this._value);
@@ -39,8 +39,8 @@ final class ExternalSystemScheme {
   String toString() => _value;
 }
 
-/// A [DecidesAndRecordsActions] that sends what it decides and records to
-/// `is_logbook`'s one writer, over a [RecordClient].
+/// A [DecidesAndRecordsActions] that sends what it decides and the entries
+/// that follow to `is_logbook`'s one writer, over a [LogbookClient].
 ///
 /// What a run may do under `R` is the app's rules, not this package's: a
 /// trajectory's `R` is whatever its host defines, so [decide] is given
@@ -49,26 +49,32 @@ final class ExternalSystemScheme {
 /// logged by whatever it prints as, same as everything else an entry
 /// carries.
 ///
-/// [recordedOn] and [rawEntry] are given as functions too, for the same
-/// reason: following the record for what it holds is genuinely this
-/// package's to build (see lib/src/record_index.dart), but is not this
+/// [entryOn] and [rawEntry] are given as functions too, for the same
+/// reason: following the logbook for what it holds is genuinely this
+/// package's to build (see lib/src/entry_index.dart), but is not this
 /// type's own concern.
-final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
-  RecordedAirlock(
-    this._record, {
+///
+/// Still named for is_airlock_api 0.13.1's own `DecidesAndRecordsActions`
+/// interface where it must be — `decide`, `recordedOn`, `recordDecision`
+/// and `recordResult` stay those names until that package moves its own
+/// vocabulary to logbook/entry (0.15.0); everything this package owns
+/// outright already has.
+final class Airlock<R, P> implements DecidesAndRecordsActions<R, P> {
+  Airlock(
+    this._logbook, {
     required this._decide,
-    required this._recordedOn,
+    required this._entryOn,
     required this._rawEntry,
     required this._registryByScheme,
   });
 
-  final RecordClient _record;
+  final LogbookClient _logbook;
   final Decision Function(TrajectoryId trajectory, Reach reach, R rules) _decide;
   final Future<Outcome<({String kind, String body})>> Function(
     TrajectoryId trajectory,
     EntryId entry,
   )
-  _recordedOn;
+  _entryOn;
 
   /// [id]'s own kind, previous and body, with no trajectory check: used
   /// only after [_turnStartingAdmission] has itself checked ownership of
@@ -100,17 +106,17 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   Future<Outcome<({String kind, String body})>> recordedOn(
     TrajectoryId trajectory,
     EntryId entry,
-  ) => _recordedOn(trajectory, entry);
+  ) => _entryOn(trajectory, entry);
 
   /// Writes [decision] under [AirlockDecisionOnAction.kind], as
   /// [_encodeDecision]'s human line: `is_logbook`'s own design is that
   /// nothing checks a decision as it runs, so a person reads it instead.
   /// Nothing reads a decision back structurally — an [AnswersEvent]'s own
   /// driver call is given the exact [Reach] it decided in memory, never
-  /// re-read from the record.
+  /// re-read from the logbook.
   @override
   Future<void> recordDecision(AirlockDecisionOnAction<P> decision) async {
-    _decisionHash[decision] = await _record.send(
+    _decisionHash[decision] = await _logbook.send(
       AirlockDecisionOnAction.kind,
       utf8.encode(_encodeDecision(decision)),
     );
@@ -118,15 +124,16 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
 
   /// Writes [result] extending [decision]'s chain.
   ///
-  /// A result answering a proposal (Nick, 16 Nov 20:45: "what an action
-  /// returns is in the record, once") is [outcomeOfProposedActionToJson],
-  /// under [outcomeOfProposedActionKind]: the loop's `propose()` is
-  /// waiting to decode exactly that back, and a human line there would
-  /// leave it waiting forever instead of failing loudly. An action proposed
-  /// in this service's own process, with no loop waiting, still records
+  /// A result answering a proposal is what an action returns, kept in
+  /// the logbook once: [outcomeOfProposedActionToJson], under
+  /// [outcomeOfProposedActionKind]: the loop's `propose()` is waiting to
+  /// decode exactly that back, and a human line there would leave it
+  /// waiting forever instead of failing loudly. An action proposed in
+  /// this service's own process, with no loop waiting, still writes
   /// [resultAsJson] in full, so a web response's redirects and kept body
-  /// never depend on whether a proposal answered it, with [_encodeResult]'s
-  /// human line alongside it as an extra, never instead.
+  /// never depend on whether a proposal answered it, with
+  /// [_encodeResult]'s human line alongside it as an extra, never
+  /// instead.
   @override
   Future<void> recordResult(
     AirlockDecisionOnAction<P> decision,
@@ -152,7 +159,7 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
               'line': _encodeResult(decision, result),
             }),
           );
-    await _record.send(kind, utf8.encode(body), previous: previous);
+    await _logbook.send(kind, utf8.encode(body), previous: previous);
   }
 
   /// Answers [proposed], a logbook entry this package never decided
@@ -161,19 +168,19 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   /// decided-and-refused action, so the loop waiting on it is answered
   /// either way, never left waiting forever because nothing to decide was
   /// ever found.
-  Future<void> recordRejection(EntryId proposed, String why) async {
-    await _record.send(
+  Future<void> writeRejection(EntryId proposed, String why) async {
+    await _logbook.send(
       outcomeOfProposedActionKind,
       utf8.encode(jsonEncode(proposalRejectedToJson(proposed, why))),
     );
   }
 
-  /// Records [line] under [skippedMalformedEntryKind], for a historical
+  /// Writes [line] under [skippedMalformedEntryKind], for a historical
   /// entry [runAirlockService] skipped rather than crash-looping on: same
   /// "nothing checks it as it runs, a person reads it" pattern as
   /// [AirlockDecisionOnAction]'s own kind.
   Future<void> writeLogbookEntry(String line) async {
-    await _record.send(skippedMalformedEntryKind, utf8.encode(line));
+    await _logbook.send(skippedMalformedEntryKind, utf8.encode(line));
   }
 
   @override
@@ -237,7 +244,7 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
     }
     final eventEntry = _rawEntry(EntryId.parse(decided.event.hex)!);
     if (eventEntry == null) {
-      return Refused('${decided.event.hex}: the relayed event is not recorded');
+      return Refused('${decided.event.hex}: the relayed event is not in the logbook');
     }
     final relayed = RelayedEvent.read(decided.event, utf8.encode(eventEntry.body));
     if (relayed == null) {
@@ -258,7 +265,7 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
   /// later turn ([OnTrajectory]), but the admission that starts a
   /// trajectory ([StartsTrajectory]) names none: its own entry's hash IS
   /// the trajectory id ([TrajectoryId.of], is_docking_station's own
-  /// `path_start.dart`), rebuilt here from what [RecordIndex.raw] already
+  /// `path_start.dart`), rebuilt here from what [EntryIndex.raw] already
   /// indexed rather than refetched — is_logbook 0.2.1's own wire,
   /// `<kind>\n<previous-hex-or-dash>\n<body>` (is_logbook's
   /// `lib/service.dart`'s `_append`).
@@ -267,7 +274,7 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
     EntryId respondsTo,
   ) {
     final raw = _rawEntry(respondsTo);
-    if (raw == null) return Refused('$respondsTo is not recorded');
+    if (raw == null) return Refused('$respondsTo is not in the logbook');
     if (Kind.parse(raw.kind) != DecisionEntryKind.eventAdmittedToMission) {
       return Refused('$respondsTo is a ${raw.kind}, not an admission');
     }
@@ -294,7 +301,7 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
     return Ran(decision);
   }
 
-  /// [kind], [previous] and [body] as the bytes the record actually hashes
+  /// [kind], [previous] and [body] as the bytes the logbook actually hashes
   /// an entry's id from: see [_turnStartingAdmission]'s own doc.
   Uint8List _entryBytes(String kind, ObjectId? previous, String body) =>
       Uint8List.fromList([
@@ -308,7 +315,7 @@ final class RecordedAirlock<R, P> implements DecidesAndRecordsActions<R, P> {
 /// (Nick's name, 18 Nov).
 const skippedMalformedEntryKind = 'skipped-malformed-entry';
 
-/// One journal line of body for [decision], human-readable: `is_logbook`'s
+/// One logbook line of body for [decision], human-readable: `is_logbook`'s
 /// own design ("nothing checks it as it runs, so a person reads it
 /// instead"), never a copy of what it carried.
 String _encodeDecision<P>(AirlockDecisionOnAction<P> decision) =>

@@ -107,16 +107,16 @@ void main() {
       'request': EntryId.of(utf8.encode('fake model request')).hex,
     },
   });
-  RecordedAirlock<String, int> airlock({
+  Airlock<String, int> airlock({
     Decision Function(TrajectoryId trajectory, Reach reach, String rules)? decide,
     ({String kind, ObjectId? previous, String body})? Function(EntryId id)?
     rawEntry,
     Map<ExternalSystemScheme, ({BuildsRequestsAnsweringEvents module, SignIn signIn})>?
     registryByScheme,
-  }) => RecordedAirlock<String, int>(
-    RecordClient(harness.socketPath),
+  }) => Airlock<String, int>(
+    LogbookClient(harness.socketPath),
     decide: decide ?? (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
-    recordedOn: (trajectory, entry) async => entry == modelProposalId
+    entryOn: (trajectory, entry) async => entry == modelProposalId
         ? Ran((kind: ActionProposedByAgentLoop.kind, body: modelProposalBody))
         : Ran((kind: outcomeOfProposedActionKind, body: resultBody)),
     rawEntry: rawEntry ?? (id) => null,
@@ -128,7 +128,7 @@ void main() {
   /// through `_consider` so the library itself produces a real result
   /// (whose constructor this package can no longer call directly).
   Trajectory<String, int> path(
-    RecordedAirlock<String, int> a, {
+    Airlock<String, int> a, {
     String rules = 'rules',
     Outcome<WebResponse> Function(Request request)? onSend,
   }) => Trajectory<String, int>(
@@ -160,7 +160,7 @@ void main() {
     expect(decided, isTrue);
   });
 
-  test('a run records one decision and one result entry', () async {
+  test('a run writes one decision and one result entry', () async {
     final a = airlock();
     final run = Program.read.run<Outcome<ReadResult>>(
       RelativePath.root,
@@ -332,13 +332,13 @@ void main() {
   );
 
   test(
-    'recordRejection answers a proposal this package never decided, same '
+    'writeRejection answers a proposal this package never decided, same '
     'shape as a decided-and-refused result',
     () async {
       final a = airlock();
       final proposedId = EntryId.of(utf8.encode('fake proposed'));
 
-      await a.recordRejection(proposedId, 'place: not an int');
+      await a.writeRejection(proposedId, 'place: not an int');
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       final resultLine = lines.firstWhere(
@@ -367,10 +367,10 @@ void main() {
       ),
     );
 
-    // The bytes the record actually hashes an admission entry's id from:
+    // The bytes the logbook actually hashes an admission entry's id from:
     // is_logbook 0.2.1's own wire, `<kind>\n<previous-hex-or-dash>\n<body>`
     // (is_logbook's lib/service.dart's `_append`) — the same bytes
-    // [RecordedAirlock]'s own `_turnStartingAdmission` rebuilds.
+    // [Airlock]'s own `_turnStartingAdmission` rebuilds.
     Uint8List admissionEntryBytes(
       EventAdmittedToMission admission, {
       ObjectId? previous,
@@ -517,7 +517,7 @@ void main() {
       },
     );
 
-    test('replyRequests refuses when respondsTo is not recorded', () async {
+    test('replyRequests refuses when respondsTo is not in the logbook', () async {
       final a = airlock(rawEntry: (id) => null);
       switch (await a.replyRequests(
         _id('some-trajectory'),
@@ -527,7 +527,7 @@ void main() {
         case Ran():
           fail('expected Refused');
         case Refused(:final why):
-          expect(why, contains('not recorded'));
+          expect(why, contains('not in the logbook'));
       }
     });
 

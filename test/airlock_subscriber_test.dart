@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 
 import 'logbook_service_harness.dart';
 
-/// Every [skippedMalformedEntryKind] line in [harness]'s record so far,
+/// Every [skippedMalformedEntryKind] line in [harness]'s logbook so far,
 /// the same `<kind>\n<previous>\n<body>` reading [_awaitAnswer] uses for
 /// [outcomeOfProposedActionKind].
 List<String> _skippedEntryLines(Directory journalDir) => [
@@ -21,7 +21,7 @@ List<String> _skippedEntryLines(Directory journalDir) => [
 /// Builds one [Entry] exactly as [runAirlockService] reads it off a real
 /// subscription, without going through [LogbookWriter]: the writer's own
 /// schema checks refuse a malformed `event-admitted-to-mission` or
-/// `users-assigned-to-trajectory` body before it is ever recorded (task
+/// `users-assigned-to-trajectory` body before it is ever in the logbook (task
 /// 38's own testing hit this), so a *historical* malformed entry — one
 /// task 38 exists for — can only be exercised by handing
 /// [runAirlockService] a fabricated [Entry] directly, the same shape a
@@ -40,7 +40,7 @@ Entry _fakeEntry(String kind, ObjectId? previous, Uint8List body) {
 }
 
 /// The bytes of every entry the harness's logbook holds, in order — the
-/// same reading [recorded_airlock_test.dart] uses, duplicated here rather
+/// same reading [airlock_test.dart] uses, duplicated here rather
 /// than shared since each test file's `main` owns its own fixtures.
 List<Uint8List> _entries(Directory journalDir) {
   final bytes = File('${journalDir.path}/entries').readAsBytesSync();
@@ -59,7 +59,7 @@ Uint8List _object(Directory journalDir, Uint8List digest) {
 }
 
 /// [write]'s id, or fails the test with its refusal. [AlreadyRecorded]
-/// counts as written, same as [RecordClient.send] treats it.
+/// counts as written, same as [LogbookClient.send] treats it.
 ObjectId _written(WriteResult result) => switch (result) {
   Written(:final entry) || AlreadyRecorded(:final entry) => entry,
   WriteRefused(:final why) => throw StateError('refused: $why'),
@@ -128,7 +128,7 @@ Future<(TrajectoryId, ObjectId)> _admitAndAssign(
 }
 
 /// Writes an admitted+assigned trajectory, then an agent loop's proposed
-/// read on its chain, through [writer] — exactly the three records
+/// read on its chain, through [writer] — exactly the three entries
 /// [runAirlockService] needs to decide something. Returns the proposed
 /// entry's own [EntryId] (`Trajectory.consider`'s and
 /// [readOutcomeOfProposedAction]'s `proposed` space — `EntryId.of` its
@@ -199,7 +199,7 @@ void main() {
       withReadSocket: true,
       // loop-1 must resolve to this test process's own real uid: the
       // logbook's chain-ownership check (`trajectory.loopUser != uid`)
-      // compares the recorded loopUser against the socket's real peer
+      // compares the loopUser it wrote against the socket's real peer
       // uid, which nothing in this process can spoof — a made-up uid
       // for loop-1 would make every write past the assigned entry
       // 'not-owner'. suit-1 only needs to differ from it.
@@ -220,12 +220,12 @@ void main() {
     () async {
       final proposedId = await _propose(LogbookWriter(harness.socketPath));
 
-      final recordIndex = RecordIndex();
-      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
-        RecordClient(harness.socketPath),
+      final entryIndex = EntryIndex();
+      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+        LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
-        recordedOn: recordIndex.recordedOn,
-        rawEntry: recordIndex.raw,
+        entryOn: entryIndex.entryOn,
+        rawEntry: entryIndex.raw,
         registryByScheme: const {},
       );
 
@@ -235,8 +235,8 @@ void main() {
           airlock: airlock,
           drivers: const [],
           proposalsEnabled: true,
-          recordIndex: recordIndex,
-          recordRejection: airlock.recordRejection,
+          entryIndex: entryIndex,
+          writeRejection: airlock.writeRejection,
           writeLogbookEntry: airlock.writeLogbookEntry,
           say: (_) {},
         ),
@@ -249,7 +249,7 @@ void main() {
         (json, field) => decodeReadResult(json, field),
       );
       // No real ReadsAndWritesFiles driver is wired tonight (drivers: const
-      // []): the proposal is still decided, recorded and answered, but with
+      // []): the proposal is still decided, written and answered, but with
       // nothing able to carry it out.
       expect(outcome, isA<Refused>());
     },
@@ -279,12 +279,12 @@ void main() {
         },
       );
 
-      final recordIndex = RecordIndex();
-      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
-        RecordClient(harness.socketPath),
+      final entryIndex = EntryIndex();
+      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+        LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
-        recordedOn: recordIndex.recordedOn,
-        rawEntry: recordIndex.raw,
+        entryOn: entryIndex.entryOn,
+        rawEntry: entryIndex.raw,
         registryByScheme: const {},
       );
 
@@ -294,8 +294,8 @@ void main() {
           airlock: airlock,
           drivers: const [],
           proposalsEnabled: true,
-          recordIndex: recordIndex,
-          recordRejection: airlock.recordRejection,
+          entryIndex: entryIndex,
+          writeRejection: airlock.writeRejection,
           writeLogbookEntry: airlock.writeLogbookEntry,
           say: (_) {},
         ),
@@ -326,12 +326,12 @@ void main() {
     () async {
       final proposedId = await _propose(LogbookWriter(harness.socketPath));
 
-      final recordIndex = RecordIndex();
-      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
-        RecordClient(harness.socketPath),
+      final entryIndex = EntryIndex();
+      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+        LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
-        recordedOn: recordIndex.recordedOn,
-        rawEntry: recordIndex.raw,
+        entryOn: entryIndex.entryOn,
+        rawEntry: entryIndex.raw,
         registryByScheme: const {},
       );
 
@@ -341,8 +341,8 @@ void main() {
           airlock: airlock,
           drivers: const [],
           proposalsEnabled: false,
-          recordIndex: recordIndex,
-          recordRejection: airlock.recordRejection,
+          entryIndex: entryIndex,
+          writeRejection: airlock.writeRejection,
           writeLogbookEntry: airlock.writeLogbookEntry,
           say: (_) {},
         ),
@@ -408,12 +408,12 @@ void main() {
       );
       final proposedId = EntryId.of(proposed.recorded);
 
-      final recordIndex = RecordIndex();
-      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
-        RecordClient(harness.socketPath),
+      final entryIndex = EntryIndex();
+      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+        LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
-        recordedOn: recordIndex.recordedOn,
-        rawEntry: recordIndex.raw,
+        entryOn: entryIndex.entryOn,
+        rawEntry: entryIndex.raw,
         registryByScheme: const {},
       );
 
@@ -428,8 +428,8 @@ void main() {
           airlock: airlock,
           drivers: const [],
           proposalsEnabled: true,
-          recordIndex: recordIndex,
-          recordRejection: airlock.recordRejection,
+          entryIndex: entryIndex,
+          writeRejection: airlock.writeRejection,
           writeLogbookEntry: airlock.writeLogbookEntry,
           say: (_) {},
         ),
@@ -467,12 +467,12 @@ void main() {
         ),
       );
 
-      final recordIndex = RecordIndex();
-      final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
-        RecordClient(harness.socketPath),
+      final entryIndex = EntryIndex();
+      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+        LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
-        recordedOn: recordIndex.recordedOn,
-        rawEntry: recordIndex.raw,
+        entryOn: entryIndex.entryOn,
+        rawEntry: entryIndex.raw,
         registryByScheme: const {},
       );
 
@@ -489,8 +489,8 @@ void main() {
           airlock: airlock,
           drivers: const [],
           proposalsEnabled: true,
-          recordIndex: recordIndex,
-          recordRejection: airlock.recordRejection,
+          entryIndex: entryIndex,
+          writeRejection: airlock.writeRejection,
           writeLogbookEntry: airlock.writeLogbookEntry,
           say: (_) {},
         ),
