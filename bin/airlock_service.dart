@@ -23,14 +23,14 @@
 ///                               `proposed` entry is acted on (task 20,
 ///                               Nick's call — flag only, no version check).
 ///   AIRLOCK_WEB_DRIVER_USER,
-///   AIRLOCK_MODEL_DRIVER_USER  the uid that driver's own process runs as
-///                               (`UserId.parse`), checked against the
-///                               kernel's own report of who connects
-///                               (`is_unix_socket_user_check`) — required,
-///                               not derived from the socket file, which
-///                               would trust whoever created the file
-///                               first rather than something independent
-///                               of the driver it checks (task 31).
+///   AIRLOCK_MODEL_DRIVER_USER  the user that driver's own process runs
+///                               as, by name or numeric uid, checked
+///                               against the kernel's own report of who
+///                               connects (`is_unix_socket_user_check`) —
+///                               required, not derived from the socket
+///                               file, which would trust whoever created
+///                               the file first rather than something
+///                               independent of the driver it checks.
 ///   AIRLOCK_WEB_DRIVER_RELEASE,
 ///   AIRLOCK_MODEL_DRIVER_RELEASE
 ///                               optional: infra's own `<sha>-<digest>`
@@ -38,7 +38,7 @@
 ///                               for the release that driver's socket is
 ///                               expected to be running. Unset means no
 ///                               release is checked for that driver — only
-///                               its user (task 31).
+///                               its user.
 library;
 
 import 'dart:io';
@@ -59,15 +59,47 @@ Future<void> main() async {
   final modelDriverSocket =
       Platform.environment['AIRLOCK_MODEL_DRIVER_SOCKET'];
   final teamsSignInName = Platform.environment['AIRLOCK_TEAMS_SIGN_IN'];
+  final webDriverUserName = Platform.environment['AIRLOCK_WEB_DRIVER_USER'];
+  final modelDriverUserName =
+      Platform.environment['AIRLOCK_MODEL_DRIVER_USER'];
   if (recordSocket == null ||
       readSocket == null ||
       webDriverSocket == null ||
       modelDriverSocket == null ||
-      teamsSignInName == null) {
+      teamsSignInName == null ||
+      webDriverUserName == null ||
+      modelDriverUserName == null) {
     stderr.writeln(
       'airlock service: set AIRLOCK_RECORD_SOCKET, '
       'AIRLOCK_RECORD_READ_SOCKET, AIRLOCK_WEB_DRIVER_SOCKET, '
-      'AIRLOCK_MODEL_DRIVER_SOCKET and AIRLOCK_TEAMS_SIGN_IN',
+      'AIRLOCK_MODEL_DRIVER_SOCKET, AIRLOCK_TEAMS_SIGN_IN, '
+      'AIRLOCK_WEB_DRIVER_USER and AIRLOCK_MODEL_DRIVER_USER',
+    );
+    exitCode = 64;
+    return;
+  }
+  // A restart cannot fix a bad uid or release id either, so every one of
+  // these failures ends the same way as the block above: systemd's own
+  // unit file stops restart-looping on exit 64 specifically
+  // (RestartPreventExitStatus=64), never on an uncaught exception's exit.
+  final webDriverUser = _userOf(webDriverUserName);
+  final modelDriverUser = _userOf(modelDriverUserName);
+  if (webDriverUser == null || modelDriverUser == null) {
+    stderr.writeln(
+      'airlock service: AIRLOCK_WEB_DRIVER_USER and '
+      'AIRLOCK_MODEL_DRIVER_USER must each name a real user, by name or '
+      'id — not unset, not the kernel\'s overflow uid or nobody',
+    );
+    exitCode = 64;
+    return;
+  }
+  final webDriverRelease = _expectedRelease('AIRLOCK_WEB_DRIVER_RELEASE');
+  final modelDriverRelease = _expectedRelease('AIRLOCK_MODEL_DRIVER_RELEASE');
+  if (!webDriverRelease.ok || !modelDriverRelease.ok) {
+    stderr.writeln(
+      'airlock service: AIRLOCK_WEB_DRIVER_RELEASE and '
+      'AIRLOCK_MODEL_DRIVER_RELEASE, when set, must be a release id '
+      '("<sha>-<digest>")',
     );
     exitCode = 64;
     return;
@@ -75,8 +107,6 @@ Future<void> main() async {
   final teamsSignIn =
       SignIn.parse(teamsSignInName) ??
       (throw StateError('AIRLOCK_TEAMS_SIGN_IN: not a sign-in name'));
-  final webDriverUser = _expectedUser('AIRLOCK_WEB_DRIVER_USER');
-  final modelDriverUser = _expectedUser('AIRLOCK_MODEL_DRIVER_USER');
 
   final recordIndex = RecordIndex();
   final airlock = RecordedAirlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
@@ -110,14 +140,14 @@ Future<void> main() async {
         File(webDriverSocket),
         checkDriver: checkDriverRelease(
           expectedUser: webDriverUser,
-          expected: _expectedRelease('AIRLOCK_WEB_DRIVER_RELEASE'),
+          expected: webDriverRelease.release,
         ),
       ),
       ClaudeCodeDriverSocket(
         File(modelDriverSocket),
         checkDriver: checkDriverRelease(
           expectedUser: modelDriverUser,
-          expected: _expectedRelease('AIRLOCK_MODEL_DRIVER_RELEASE'),
+          expected: modelDriverRelease.release,
         ),
       ),
     ],
@@ -129,25 +159,32 @@ Future<void> main() async {
   );
 }
 
-/// The release named by the env var [name], or null if it's unset. Set but
-/// unparseable is a startup error, not a silently-ignored typo — unlike an
-/// unset var, which deliberately means "don't check".
-DriverRelease? _expectedRelease(String name) {
+/// The release named by the env var [name]: [release] is null when the var
+/// is unset (deliberately means "don't check"), and [ok] is false only
+/// when it was set but unparseable — a startup failure, not a silently
+/// ignored typo.
+({DriverRelease? release, bool ok}) _expectedRelease(String name) {
   final value = Platform.environment[name];
-  if (value == null) return null;
-  return DriverRelease.parseExpected(value) ??
-      (throw StateError('$name: not a release id ("<sha>-<digest>")'));
+  if (value == null) return (release: null, ok: true);
+  final release = DriverRelease.parseExpected(value);
+  return (release: release, ok: release != null);
 }
 
-/// The uid env var [name] names, as a [UserId] — required, not derived
-/// from anything a driver could itself influence: unset or unparseable
-/// (including the uids `UserId.parse` refuses: the kernel's overflow uid,
-/// `nobody`, or no credentials at all) is a startup error.
-UserId _expectedUser(String name) {
-  final value = Platform.environment[name];
-  final number = value == null ? null : int.tryParse(value);
-  return (number == null ? null : UserId.parse(number)) ??
-      (throw StateError('$name: set this to the driver\'s own uid'));
+/// [value] (a name or a numeric uid, as systemd's own `User=` also takes),
+/// resolved the same way `is_web_request_driver`'s own service does: `id
+/// -u` when not already numeric. Null for anything `id` or [UserId.parse]
+/// refuses (the kernel's overflow uid, `nobody`, or no credentials at
+/// all) — never derived from anything the driver being checked could
+/// itself influence, such as its own socket file.
+UserId? _userOf(String value) {
+  final uid = int.tryParse(value) ?? _resolveUid(value);
+  return uid == null ? null : UserId.parse(uid);
+}
+
+int? _resolveUid(String user) {
+  final result = Process.runSync('id', ['-u', user]);
+  final out = result.stdout;
+  return result.exitCode == 0 && out is String ? int.tryParse(out.trim()) : null;
 }
 
 /// Files, writes and programs carry nothing off this machine by
