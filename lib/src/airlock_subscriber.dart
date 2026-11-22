@@ -30,9 +30,8 @@ import 'package:is_docking_station/path_start.dart'
         readTrajectoryStart;
 import 'package:is_effects/is_effects.dart';
 import 'package:is_flight_rules/is_flight_rules.dart';
-import 'package:is_logbook/service.dart' show Kind;
 import 'package:is_logbook_client/is_logbook_client.dart'
-    show CaughtUp, Entry, ObjectId, Subscribed;
+    show CaughtUp, Entry, Kind, ObjectId, Subscribed;
 
 import 'entry_index.dart';
 
