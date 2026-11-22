@@ -65,28 +65,53 @@ void main() {
     expect(claude.calledAs, isNull);
   });
 
-  group('socketPathsBySignIn', () {
-    test('reads a sign-in -> socket path map', () {
-      final paths = socketPathsBySignIn(
-        '{"nick-claude-team": "/run/a.sock", "cam-chatgpt": "/run/b.sock"}',
+  group('modelDriversBySignIn', () {
+    test('reads a sign-in -> {socket, user} map', () {
+      final drivers = modelDriversBySignIn(
+        '{"nick-claude-team": {"socket": "/run/a.sock", "user": "a"}, '
+        '"cam-chatgpt": {"socket": "/run/b.sock", "user": "b"}}',
       );
 
-      expect(paths, {
-        _signIn('nick-claude-team'): '/run/a.sock',
-        _signIn('cam-chatgpt'): '/run/b.sock',
+      expect(drivers, {
+        _signIn('nick-claude-team'): (socket: '/run/a.sock', user: 'a'),
+        _signIn('cam-chatgpt'): (socket: '/run/b.sock', user: 'b'),
       });
     });
 
     test('refuses a key that is not a sign-in name', () {
       expect(
-        () => socketPathsBySignIn('{"NOT VALID": "/run/a.sock"}'),
+        () => modelDriversBySignIn(
+          '{"NOT VALID": {"socket": "/run/a.sock", "user": "a"}}',
+        ),
         throwsFormatException,
       );
     });
 
-    test('refuses a value that is not a string', () {
+    test('refuses an entry that is not an object', () {
       expect(
-        () => socketPathsBySignIn('{"nick-claude-team": 1}'),
+        () => modelDriversBySignIn('{"nick-claude-team": "/run/a.sock"}'),
+        throwsFormatException,
+      );
+    });
+
+    test('refuses an entry missing socket or user', () {
+      expect(
+        () => modelDriversBySignIn('{"nick-claude-team": {"socket": "/run/a.sock"}}'),
+        throwsFormatException,
+      );
+      expect(
+        () => modelDriversBySignIn('{"nick-claude-team": {"user": "a"}}'),
+        throwsFormatException,
+      );
+    });
+  });
+
+  group('RoutesModelCallsBySignIn.fromSocketsFile', () {
+    test('refuses a user that names no real user, by name or id', () {
+      expect(
+        () => RoutesModelCallsBySignIn.fromSocketsFile(
+          '{"nick-claude-team": {"socket": "/run/a.sock", "user": "-no-such-flag"}}',
+        ),
         throwsFormatException,
       );
     });

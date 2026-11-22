@@ -15,8 +15,13 @@
 ///                               socket (AIRLOCK_RECORD_READ_SOCKET also
 ///                               accepted, same window)
 ///   AIRLOCK_WEB_DRIVER_SOCKET   the web driver's Unix socket
-///   AIRLOCK_MODEL_DRIVER_SOCKETS a JSON object's path, sign-in name -> that
-///     sign-in's model driver's Unix socket
+///   AIRLOCK_MODEL_DRIVER_SOCKETS a JSON object's path, sign-in name ->
+///     `{"socket": ..., "user": ...}` — that sign-in's model driver's Unix
+///     socket, and the process user it must be running as, checked the
+///     same way as AIRLOCK_WEB_DRIVER_USER (Nick's ruling, 22 Nov: a
+///     release must not check less than what is already live). The user
+///     lives in the same entry as the socket, never a second map beside
+///     it, so a sign-in can't have one without the other.
 ///   AIRLOCK_TEAMS_SIGN_IN       which sign-in posts a Teams reply or the
 ///                               trajectory-opened card (operational, not
 ///                               a build: infra's call which name CAM's
@@ -34,10 +39,9 @@
 ///                               not derived from the socket file, which
 ///                               would trust whoever created the file
 ///                               first rather than something independent
-///                               of the driver it checks. The routed model
-///                               drivers (AIRLOCK_MODEL_DRIVER_SOCKETS)
-///                               don't get this check yet — one user per
-///                               sign-in needs its own design.
+///                               of the driver it checks. Each routed model
+///                               driver gets the same check, its own user
+///                               named in AIRLOCK_MODEL_DRIVER_SOCKETS.
 ///   AIRLOCK_WEB_DRIVER_RELEASE  optional: infra's own `<sha>-<digest>`
 ///                               release id (`DriverRelease.parseExpected`)
 ///                               for the release the web driver's socket is
@@ -110,9 +114,16 @@ Future<void> main() async {
   final teamsSignIn =
       SignIn.parse(teamsSignInName) ??
       (throw StateError('AIRLOCK_TEAMS_SIGN_IN: not a sign-in name'));
-  final modelDriver = RoutesModelCallsBySignIn.fromSocketsFile(
-    File(modelDriverSockets).readAsStringSync(),
-  );
+  final RoutesModelCallsBySignIn modelDriver;
+  try {
+    modelDriver = RoutesModelCallsBySignIn.fromSocketsFile(
+      File(modelDriverSockets).readAsStringSync(),
+    );
+  } on FormatException catch (e) {
+    stderr.writeln('airlock service: AIRLOCK_MODEL_DRIVER_SOCKETS: ${e.message}');
+    exitCode = 64;
+    return;
+  }
 
   final entryIndex = EntryIndex();
   final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
