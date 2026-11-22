@@ -1,15 +1,19 @@
-/// The airlock as its own service: subscribes to the record, builds a
+/// The airlock as its own service: subscribes to the logbook, builds a
 /// [Trajectory] per path from its `event-admitted-to-mission` and
 /// `users-assigned-to-trajectory` entries, and reacts to each `proposed`
 /// entry on a trajectory's own chain.
 ///
 /// "The airlock has no door of its own" (is_airlock_api 0.7.1): there is no
 /// listener here for a loop to dial. A loop only ever proposes through the
-/// record.
+/// logbook.
 ///
 /// Environment:
-///   AIRLOCK_RECORD_SOCKET       the writer service's Unix socket
-///   AIRLOCK_RECORD_READ_SOCKET  the writer service's read/subscribe socket
+///   AIRLOCK_LOGBOOK_SOCKET      the writer service's Unix socket
+///                               (AIRLOCK_RECORD_SOCKET also accepted,
+///                               until infra's migration window closes)
+///   AIRLOCK_LOGBOOK_READ_SOCKET the writer service's read/subscribe
+///                               socket (AIRLOCK_RECORD_READ_SOCKET also
+///                               accepted, same window)
 ///   AIRLOCK_WEB_DRIVER_SOCKET   the web driver's Unix socket
 ///   AIRLOCK_MODEL_DRIVER_SOCKETS a JSON object's path, sign-in name -> that
 ///     sign-in's model driver's Unix socket
@@ -18,7 +22,7 @@
 ///                               a build: infra's call which name CAM's
 ///                               Teams sign-in actually has)
 ///   AIRLOCK_PROPOSALS_ENABLED   `1` or `true` once infra-5e has confirmed
-///                               the record enforces that a trajectory's
+///                               the logbook enforces that a trajectory's
 ///                               chain takes entries only from its own loop
 ///                               user; unset or anything else means no
 ///                               `proposed` entry is acted on (task 20,
@@ -55,22 +59,25 @@ import 'package:is_web_request_driver/service.dart'
     show WebRequestDriverSocket;
 
 Future<void> main() async {
-  final recordSocket = Platform.environment['AIRLOCK_RECORD_SOCKET'];
-  final readSocket = Platform.environment['AIRLOCK_RECORD_READ_SOCKET'];
+  final logbookSocket = Platform.environment['AIRLOCK_LOGBOOK_SOCKET'] ??
+      Platform.environment['AIRLOCK_RECORD_SOCKET'];
+  final logbookReadSocket =
+      Platform.environment['AIRLOCK_LOGBOOK_READ_SOCKET'] ??
+      Platform.environment['AIRLOCK_RECORD_READ_SOCKET'];
   final webDriverSocket = Platform.environment['AIRLOCK_WEB_DRIVER_SOCKET'];
   final modelDriverSockets =
       Platform.environment['AIRLOCK_MODEL_DRIVER_SOCKETS'];
   final teamsSignInName = Platform.environment['AIRLOCK_TEAMS_SIGN_IN'];
   final webDriverUserName = Platform.environment['AIRLOCK_WEB_DRIVER_USER'];
-  if (recordSocket == null ||
-      readSocket == null ||
+  if (logbookSocket == null ||
+      logbookReadSocket == null ||
       webDriverSocket == null ||
       modelDriverSockets == null ||
       teamsSignInName == null ||
       webDriverUserName == null) {
     stderr.writeln(
-      'airlock service: set AIRLOCK_RECORD_SOCKET, '
-      'AIRLOCK_RECORD_READ_SOCKET, AIRLOCK_WEB_DRIVER_SOCKET, '
+      'airlock service: set AIRLOCK_LOGBOOK_SOCKET, '
+      'AIRLOCK_LOGBOOK_READ_SOCKET, AIRLOCK_WEB_DRIVER_SOCKET, '
       'AIRLOCK_MODEL_DRIVER_SOCKETS, AIRLOCK_TEAMS_SIGN_IN and '
       'AIRLOCK_WEB_DRIVER_USER',
     );
@@ -109,7 +116,7 @@ Future<void> main() async {
 
   final entryIndex = EntryIndex();
   final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
-    LogbookClient(recordSocket),
+    LogbookClient(logbookSocket),
     decide: _decide,
     entryOn: entryIndex.entryOn,
     rawEntry: entryIndex.raw,
@@ -128,11 +135,11 @@ Future<void> main() async {
     _ => false,
   };
   stderr.writeln(
-    'airlock service: subscribing to $readSocket '
+    'airlock service: subscribing to $logbookReadSocket '
     '(proposals ${proposalsEnabled ? 'enabled' : 'disabled'})',
   );
   await runAirlockService(
-    subscribe: () => LogbookReader(readSocket).subscribe(),
+    subscribe: () => LogbookReader(logbookReadSocket).subscribe(),
     airlock: airlock,
     drivers: [
       WebRequestDriverSocket(
