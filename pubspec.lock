@@ -218,7 +218,7 @@ packages:
     source: hosted
     version: "0.3.0"
   is_logbook:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: is_logbook
       sha256: b1b848bb127e2453508dced234c298a95013a3fee56911cb98ddd750715b9e31
