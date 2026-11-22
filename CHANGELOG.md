@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.2.0
+
+First tagged release — the version catches up to everything shipped
+since the live deploy at `61e8d64`, so infra has a tag to deploy
+against. Every environment variable change below is what distinguishes
+a deploy of this tag from the live `61e8d64` unit.
+
+- Driver release identity: `bin/airlock_service.dart` now requires
+  `AIRLOCK_WEB_DRIVER_USER` (the web driver's own process user, by name
+  or numeric uid), checked against the kernel's own report of who
+  connects (`is_unix_socket_user_check`), not derived from the socket
+  file. `AIRLOCK_WEB_DRIVER_RELEASE` is new and optional: an exact
+  `<sha>-<digest>` release id the web driver's socket is expected to be
+  running; unset means no release is checked, only its user.
+- Route model calls by sign-in: `AIRLOCK_MODEL_DRIVER_SOCKET` (one
+  socket) is replaced by `AIRLOCK_MODEL_DRIVER_SOCKETS` (a JSON map
+  file's path, sign-in name -> that sign-in's model driver's socket).
+  `RoutesModelCallsBySignIn` dispatches each call to whichever driver
+  its sign-in names, refusing a sign-in the map holds none for.
+- `RecordedAirlock` renamed to `Airlock`; `record` vocabulary renamed to
+  `logbook`/`entry` throughout, matching `is_airlock_api`'s own move.
+  `AIRLOCK_RECORD_SOCKET`/`AIRLOCK_RECORD_READ_SOCKET` are renamed to
+  `AIRLOCK_LOGBOOK_SOCKET`/`AIRLOCK_LOGBOOK_READ_SOCKET`; the old names
+  are still accepted as a fallback until infra's migration window has
+  run.
+
 ## 0.1.0
 
 - Start `is_airlock`: `RecordedAirlock<R>`, an `Airlock<R>` whose record is an
