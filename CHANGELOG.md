@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.1
+
+- `AIRLOCK_MODEL_DRIVER_SOCKETS`'s JSON map now carries each sign-in's
+  model driver as `{"socket": ..., "user": ...}` in one entry, rather
+  than a bare socket path. `RoutesModelCallsBySignIn` checks each
+  driver's `user` the same way `AIRLOCK_WEB_DRIVER_USER` already
+  checks the web driver — against the kernel's own report of who
+  connects, never derived from the socket file. Fixes a regression
+  0.2.0 shipped with: the live `61e8d64` unit already checked its one
+  model driver's user, and moving to routing-by-sign-in (0.2.0) dropped
+  that check entirely, with nothing replacing it (Nick's ruling, 22
+  Nov: a release must not check less than what is already live).
+
 ## 0.2.0
 
 First tagged release — the version catches up to everything shipped
@@ -16,15 +29,10 @@ a deploy of this tag from the live `61e8d64` unit.
   running; unset means no release is checked, only its user.
 - Route model calls by sign-in: `AIRLOCK_MODEL_DRIVER_SOCKET` (one
   socket) is replaced by `AIRLOCK_MODEL_DRIVER_SOCKETS` (a JSON map
-  file's path, sign-in name -> `{"socket": ..., "user": ...}`).
-  `RoutesModelCallsBySignIn` dispatches each call to whichever driver
-  its sign-in names, refusing a sign-in the map holds none for. Each
-  entry's `user` is checked the same way `AIRLOCK_WEB_DRIVER_USER`
-  checks the web driver — against the kernel's own report of who
-  connects, not derived from the socket file — corrected after the
-  first draft of this release dropped that check against what the live
-  `61e8d64` unit already had (Nick's ruling, 22 Nov: a release must not
-  check less than what is already live).
+  file's path, sign-in name -> that sign-in's model driver's socket —
+  the shape 0.2.1 corrects, see above). `RoutesModelCallsBySignIn`
+  dispatches each call to whichever driver its sign-in names, refusing
+  a sign-in the map holds none for.
 - `RecordedAirlock` renamed to `Airlock`; `record` vocabulary renamed to
   `logbook`/`entry` throughout, matching `is_airlock_api`'s own move.
   `AIRLOCK_RECORD_SOCKET`/`AIRLOCK_RECORD_READ_SOCKET` are renamed to
