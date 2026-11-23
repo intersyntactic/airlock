@@ -1,8 +1,8 @@
 /// Which release a connected driver (the web driver, the model driver) is
 /// actually running, read from the kernel rather than trusted from the
-/// driver's own say-so, and wired through [CheckDriver] — the airlock's
-/// own typedef, matching `is_web_request_driver`'s — run on every
-/// connection before a request is sent.
+/// driver's own say-so, and wired through [CheckDriver], which looks at
+/// the driver on the other end of a connection and says why to refuse it,
+/// run on every connection before a request is sent.
 ///
 /// From `enspyrco/infra`#408's per-release systemd slice and
 /// `scripts/lib/release_deploy.dart`'s own naming:
@@ -164,10 +164,7 @@ int? _resolveUid(String user) {
 
 /// Looks at the driver on the other end of a connected socket, such as
 /// which release the kernel says it is, before any call is written to it.
-/// Returns why to refuse it, or null to go on. Structurally the same as
-/// is_web_request_driver's own matching typedef — never that type by name,
-/// since this package holds no dependency on it, but the two compose
-/// wherever a driver's socket needs checking.
+/// Returns why to refuse it, or null to go on.
 typedef CheckDriver = Future<String?> Function(Socket driver);
 
 /// Builds a [CheckDriver] that refuses a driver connection unless
