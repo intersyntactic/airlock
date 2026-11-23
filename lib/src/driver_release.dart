@@ -1,9 +1,8 @@
 /// Which release a connected driver (the web driver, the model driver) is
 /// actually running, read from the kernel rather than trusted from the
-/// driver's own say-so, and wired through `is_web_request_driver`'s and
-/// `is_claude_code_driver`'s own `checkDriver` hook (`CheckDriver`, both
-/// packages: `Future<String?> Function(Socket driver)`, run on every
-/// connection before a request is sent).
+/// driver's own say-so, and wired through [CheckDriver] — the airlock's
+/// own typedef, matching `is_web_request_driver`'s — run on every
+/// connection before a request is sent.
 ///
 /// From `enspyrco/infra`#408's per-release systemd slice and
 /// `scripts/lib/release_deploy.dart`'s own naming:
@@ -163,17 +162,24 @@ int? _resolveUid(String user) {
   return result.exitCode == 0 && out is String ? int.tryParse(out.trim()) : null;
 }
 
-/// Builds a `CheckDriver` (is_web_request_driver's and
-/// is_claude_code_driver's own matching typedef) that refuses a driver
-/// connection unless `is_unix_socket_user_check` says it's running as
-/// [expectedUser] — an unreadable peer user is refused, never skipped —
-/// and, when [expected] is given, that its release's sha and digest
-/// match. A driver this can't read any release for at all (a peer whose
-/// cgroup isn't a per-release slice, or off Linux, where there's nothing
-/// to read) is refused whenever [expected] is given, and passed through
-/// untouched otherwise: release matching is opt-in per driver, so it's a
-/// no-op until something actually sets an expectation.
-Future<String?> Function(Socket) checkDriverRelease({
+/// Looks at the driver on the other end of a connected socket, such as
+/// which release the kernel says it is, before any call is written to it.
+/// Returns why to refuse it, or null to go on. Structurally the same as
+/// is_web_request_driver's own matching typedef — never that type by name,
+/// since this package holds no dependency on it, but the two compose
+/// wherever a driver's socket needs checking.
+typedef CheckDriver = Future<String?> Function(Socket driver);
+
+/// Builds a [CheckDriver] that refuses a driver connection unless
+/// `is_unix_socket_user_check` says it's running as [expectedUser] — an
+/// unreadable peer user is refused, never skipped — and, when [expected]
+/// is given, that its release's sha and digest match. A driver this can't
+/// read any release for at all (a peer whose cgroup isn't a per-release
+/// slice, or off Linux, where there's nothing to read) is refused whenever
+/// [expected] is given, and passed through untouched otherwise: release
+/// matching is opt-in per driver, so it's a no-op until something actually
+/// sets an expectation.
+CheckDriver checkDriverRelease({
   required UserId expectedUser,
   DriverRelease? expected,
 }) {

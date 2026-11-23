@@ -169,14 +169,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.3.2"
-  is_claude_code_driver:
-    dependency: "direct main"
-    description:
-      name: is_claude_code_driver
-      sha256: "7b25dd0160f5dbed8cf3967d3699ebdc75b590a5e81442fd0262e754a1bb8dd9"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.3.2"
   is_content_id:
     dependency: transitive
     description:

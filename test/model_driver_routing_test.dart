@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:is_airlock/is_airlock.dart';
 import 'package:test/test.dart';
 
@@ -114,6 +118,115 @@ void main() {
         ),
         throwsFormatException,
       );
+    });
+  });
+
+  group('ModelDriverSocket, over a real Unix domain socket', () {
+    late Directory directory;
+    late ServerSocket server;
+
+    setUp(() async {
+      directory = await Directory.systemTemp.createTemp('model_driver_test');
+    });
+
+    tearDown(() async {
+      await server.close();
+      await directory.delete(recursive: true);
+    });
+
+    /// Binds a server that answers the one connection it accepts by
+    /// writing [lines], each already JSON-encoded, one per `\n`-terminated
+    /// write — mirroring a real driver streaming its messages rather than
+    /// sending them all in one chunk, so a client that buffers before
+    /// reading anything (as [ModelDriverSocket] must not) would see
+    /// [onReport] arrive late, if ever.
+    Future<File> serverWriting(List<String> lines, {void Function()? onReport}) async {
+      final socket = File('${directory.path}/driver.sock');
+      final address = InternetAddress(socket.path, type: InternetAddressType.unix);
+      server = await ServerSocket.bind(address, 0);
+      server.listen((client) async {
+        await client.drain<void>();
+        for (final line in lines) {
+          client.add(utf8.encode('$line\n'));
+          if (line.contains('"reported"')) onReport?.call();
+          await Future<void>.delayed(Duration.zero);
+        }
+        await client.close();
+      });
+      return socket;
+    }
+
+    test('reports progress as it streams, before returning the outcome', () async {
+      final reportedBeforeReturn = Completer<bool>();
+      var reported = false;
+      final socket = await serverWriting([
+        jsonEncode(
+          encodeProgramMessage(
+            Reported<ModelReply>(const ReplyArriving('partial')),
+            encodeModelReply,
+          ),
+        ),
+        jsonEncode(
+          encodeProgramMessage(
+            Finished<ModelReply>(Ran(FinishedReply(text: 'done'))),
+            encodeModelReply,
+          ),
+        ),
+      ], onReport: () => reported = true);
+
+      final result = await ModelDriverSocket(socket).askTheModel(
+        _signIn('nick-claude-team'),
+        ModelName.parse('some-model')!,
+        'system',
+        'request',
+        report: (progress) {
+          reportedBeforeReturn.complete(progress is ReplyArriving);
+        },
+      );
+
+      expect(await reportedBeforeReturn.future, isTrue);
+      expect(reported, isTrue);
+      expect(result, isA<Ran<ModelReply>>());
+      expect((result as Ran<ModelReply>).output, isA<FinishedReply>());
+      expect((result.output as FinishedReply).text, 'done');
+    });
+
+    test('refuses without connecting the call through when checkDriver objects', () async {
+      var calledCheckDriver = false;
+      final socket = await serverWriting([]);
+
+      final result = await ModelDriverSocket(
+        socket,
+        checkDriver: (driver) async {
+          calledCheckDriver = true;
+          return 'not the expected driver';
+        },
+      ).askTheModel(
+        _signIn('nick-claude-team'),
+        ModelName.parse('some-model')!,
+        'system',
+        'request',
+        report: (_) {},
+      );
+
+      expect(calledCheckDriver, isTrue);
+      expect(result, isA<Refused>());
+      expect((result as Refused).why, contains('not the expected driver'));
+    });
+
+    test('refuses with the driver\'s own wording on an unreadable answer', () async {
+      final socket = await serverWriting(['not json']);
+
+      final result = await ModelDriverSocket(socket).askTheModel(
+        _signIn('nick-claude-team'),
+        ModelName.parse('some-model')!,
+        'system',
+        'request',
+        report: (_) {},
+      );
+
+      expect(result, isA<Refused>());
+      expect((result as Refused).why, contains('unreadable answer'));
     });
   });
 }
