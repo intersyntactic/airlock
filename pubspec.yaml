@@ -3,7 +3,7 @@ description: >-
   An Airlock that decides and records runs under is_airlock_api, witnessing
   every arrival before anything reads it, by sending each to is_logbook's
   one writer service.
-version: 0.3.1
+version: 0.4.0
 repository: https://github.com/intersyntactic/airlock
 
 environment:
