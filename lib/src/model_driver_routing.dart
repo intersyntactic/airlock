@@ -14,10 +14,10 @@ import 'driver_release.dart';
 /// and returns the final one's outcome. Holds no secret.
 ///
 /// Named for the wire, not for any one driver's own package: airlock
-/// dials whichever process speaks this protocol, and depending on that
-/// process's own code (Nick, 23 Nov: "it shouldn't") would mean a change
-/// to one driver's internals could break every other sign-in's airlock
-/// never actually calls through it.
+/// dials whichever process speaks this protocol, so depending on that
+/// process's own code would mean a change to one driver's internals
+/// could break every other sign-in's airlock never actually calls
+/// through it.
 final class ModelDriverSocket implements AsksTheModel {
   /// [checkDriver] runs on every connection before the call is sent, so a
   /// driver it refuses never sees the call.
@@ -81,8 +81,8 @@ final class RoutesModelCallsBySignIn implements AsksTheModel {
   /// per entry: every model driver speaks the same wire protocol, so the
   /// one client type dials whichever socket its sign-in is routed to,
   /// checked against that entry's own expected user first — exactly as
-  /// [AIRLOCK_WEB_DRIVER_USER] checks the web driver (Nick's ruling, 22
-  /// Nov: a release must not check less than what is already live).
+  /// [AIRLOCK_WEB_DRIVER_USER] checks the web driver: a release must not
+  /// check less than what is already live.
   ///
   /// Throws [FormatException] for a malformed entry, including a [user]
   /// that is not a real user by name or id — the same restart-cannot-fix-it
