@@ -22,7 +22,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
-import 'package:is_docking_station/path_start.dart'
+import 'package:is_docking_station_api/path_start.dart'
     show
         EntryStartsTrajectory,
         EntryStartsNoTrajectory,
@@ -235,7 +235,7 @@ Future<void> runAirlockService({
           case EntryStartsNoTrajectory<WhatMayLeaveThisMachine>():
             break;
           case UnreadableTrajectoryEntry<WhatMayLeaveThisMachine>(:final why):
-            // is_docking_station's own doc on UnreadableTrajectoryEntry says
+            // is_docking_station_api's own doc on UnreadableTrajectoryEntry says
             // a rules-enforcing reader "must stop" here; safe to skip
             // instead specifically because build() already returns null for
             // a trajectory with no rules, and consider()'s own no-rules

@@ -98,7 +98,7 @@ Future<(TrajectoryId, ObjectId)> _admitAndAssign(
       jsonEncode({
         'event': ObjectId.of(utf8.encode('fake event')).hex,
         'by': 'rules',
-        'reading': {'case': 'something-else'},
+        'translatedEvent': {'case': 'something-else'},
         'startsMission': true,
         'startsTrajectory': true,
         'rules': rules ?? _rulesJson,
@@ -207,8 +207,8 @@ void main() {
       // for loop-1 would make every write past the assigned entry
       // 'not-owner'. suit-1 only needs to differ from it.
       uidOf: (user) => switch (user) {
-        'loop-1' => _realUid,
-        'suit-1' => _realUid + 1,
+        'loop-1' => UserId.parse(_realUid),
+        'suit-1' => UserId.parse(_realUid + 1),
         _ => null,
       },
     );
@@ -375,7 +375,7 @@ void main() {
           jsonEncode({
             'event': ObjectId.of(utf8.encode('fake event')).hex,
             'by': 'rules',
-            'reading': {'case': 'something-else'},
+            'translatedEvent': {'case': 'something-else'},
             'startsMission': true,
             'startsTrajectory': true,
             // Not a valid WhatMayLeaveThisMachine shape: readTrajectoryStart
