@@ -32,6 +32,7 @@ export 'package:is_flight_rules/is_flight_rules.dart';
 
 export 'src/airlock.dart';
 export 'src/airlock_subscriber.dart';
+export 'src/decide_reach.dart';
 export 'src/driver_release.dart';
 export 'src/entry_index.dart';
 export 'src/logbook_client.dart';

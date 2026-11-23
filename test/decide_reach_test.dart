@@ -1,0 +1,190 @@
+// `decideReach` (lib/src/decide_reach.dart) is what bin/airlock_service.dart
+// actually decides with in production — these tests exercise it directly,
+// not a fake that grants everything under `/` (airlock-api-b3's finding on
+// PR #23).
+import 'dart:typed_data';
+
+import 'package:is_airlock/is_airlock.dart';
+import 'package:test/test.dart';
+
+final _trajectory = TrajectoryId.of(Uint8List.fromList([1, 2, 3]));
+final _site = Origin.parse('https://api.example')!;
+final _otherSite = Origin.parse('https://other.example')!;
+final _signIn = SignIn.parse('cam-teams')!;
+
+WhatMayLeaveThisMachine _rules({
+  Iterable<GrantToFetch> fetchesMayReach = const [],
+  Iterable<GrantToMakeWebRequests> webRequestsMayReach = const [],
+}) => WhatMayLeaveThisMachine(
+  modelSignInsCallsMayGoOutAs: const [],
+  fetchesMayReach: fetchesMayReach,
+  webRequestsMayReach: webRequestsMayReach,
+  programsNetwork: ProgramsNetwork.noNetworkOfTheirOwn,
+);
+
+GrantToMakeWebRequests _grantRequestsTo(Origin origin, String prefix) =>
+    GrantToMakeWebRequests(
+      ToAddressesUnder(AddressPrefix.of(origin, PathPrefix.parse(prefix)!)),
+      GoesAsSignIn(_signIn),
+    );
+
+ProposedRequest _requestTo(Origin origin, String path) =>
+    ProposedRequest(origin, path: WebPath.parse(path)!, signIn: _signIn);
+
+void main() {
+  group('decideReach: MakesWebRequests', () {
+    test(
+      'grants one path prefix per request, under the rule\'s own prefix, '
+      'not the whole site',
+      () {
+        final rules = _rules(
+          webRequestsMayReach: [_grantRequestsTo(_site, '/v1/things/')],
+        );
+        final decision = decideReach(
+          _trajectory,
+          MakesWebRequests([
+            _requestTo(_site, '/v1/things/'),
+            _requestTo(_site, '/v1/things/abc'),
+          ]),
+          rules,
+        );
+        expect(decision, isA<Allow>());
+        final allow = decision as Allow;
+        expect(allow.grantedPathPrefixes, hasLength(2));
+        expect(
+          allow.grantedPathPrefixes,
+          everyElement(PathPrefix.parse('/v1/things/')),
+        );
+      },
+    );
+
+    test('denies the whole reach when any one request is ungranted', () {
+      final rules = _rules(
+        webRequestsMayReach: [_grantRequestsTo(_site, '/v1/things/')],
+      );
+      final decision = decideReach(
+        _trajectory,
+        MakesWebRequests([
+          _requestTo(_site, '/v1/things/'),
+          _requestTo(_otherSite, '/v1/things/'),
+        ]),
+        rules,
+      );
+      expect(decision, isA<Deny>());
+      expect((decision as Deny).why, contains('$_otherSite'));
+    });
+
+    test('denies with no grants at all', () {
+      final decision = decideReach(
+        _trajectory,
+        MakesWebRequests([_requestTo(_site, '/v1/things/')]),
+        _rules(),
+      );
+      expect(decision, isA<Deny>());
+    });
+  });
+
+  group('decideReach: FetchesFromWeb', () {
+    test('grants the rule\'s own prefix, not the whole site', () {
+      final rules = _rules(
+        fetchesMayReach: [
+          GrantToFetch(
+            FromAddressesUnder(AddressPrefix.of(_site, PathPrefix.parse('/docs/')!)),
+            GoesAsSignIn(_signIn),
+          ),
+        ],
+      );
+      final decision = decideReach(
+        _trajectory,
+        FetchesFromWeb(
+          WebFetch(
+            _site,
+            path: WebPath.parse('/docs/page')!,
+            keep: BodyToKeep.none,
+            signIn: _signIn,
+          ),
+        ),
+        rules,
+      );
+      expect(decision, isA<Allow>());
+      expect(
+        (decision as Allow).grantedPathPrefixes,
+        [PathPrefix.parse('/docs/')],
+      );
+    });
+
+    test('denies a fetch under no matching grant', () {
+      final decision = decideReach(
+        _trajectory,
+        FetchesFromWeb(
+          WebFetch(_otherSite, keep: BodyToKeep.none, signIn: _signIn),
+        ),
+        _rules(),
+      );
+      expect(decision, isA<Deny>());
+    });
+  });
+
+  group('decideReach: other reaches', () {
+    test('Reads/Writes/Starts need no grant at all', () {
+      final rules = _rules();
+      expect(
+        decideReach(_trajectory, Reads(RelativePath.root), rules),
+        isA<Allow>(),
+      );
+      expect(
+        decideReach(
+          _trajectory,
+          Writes(FileText(RelativePath.root, '')),
+          rules,
+        ),
+        isA<Allow>(),
+      );
+      expect(
+        decideReach(
+          _trajectory,
+          Starts(ProgramName.parse('dart')!, const Args([])),
+          rules,
+        ),
+        isA<Allow>(),
+      );
+    });
+
+    test('CallsTheModel is granted only for a sign-in the rules name', () {
+      final rules = WhatMayLeaveThisMachine(
+        modelSignInsCallsMayGoOutAs: [ModelSignInName.parse('cam-teams')!],
+        fetchesMayReach: const [],
+        webRequestsMayReach: const [],
+        programsNetwork: ProgramsNetwork.noNetworkOfTheirOwn,
+      );
+      expect(
+        decideReach(
+          _trajectory,
+          CallsTheModel(
+            ModelCall(
+              signIn: ModelSignInName.parse('cam-teams')!,
+              model: ModelName.parse('claude-opus-5-5')!,
+              request: EntryId.of(Uint8List.fromList([1])),
+            ),
+          ),
+          rules,
+        ),
+        isA<Allow>(),
+      );
+      expect(
+        decideReach(
+          _trajectory,
+          CallsTheModel(
+            ModelCall(
+              signIn: ModelSignInName.parse('nick-claude-team')!,
+              model: ModelName.parse('claude-opus-5-5')!,
+              request: EntryId.of(Uint8List.fromList([1])),
+            ),
+          ),
+          rules,
+        ),
+        isA<Deny>(),
+      );
+    });
+  });
+}
