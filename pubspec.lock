@@ -205,10 +205,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_flight_rules
-      sha256: "28388888a989e1df6221f23c030fcb30045ba14cf6300045de57b4dc652d27b2"
+      sha256: ccca6da45d07ee5689f19707abfe19c1e534fb6636b097a58aa3527d65ee9799
       url: "https://pub.dev"
     source: hosted
-    version: "0.4.0"
+    version: "0.5.0"
   is_logbook:
     dependency: "direct dev"
     description:
