@@ -19,10 +19,6 @@
 ///     than what is already live. The user lives in the same entry as the
 ///     socket, never a second map beside it, so a sign-in can't have one
 ///     without the other.
-///   AIRLOCK_TEAMS_SIGN_IN       which sign-in posts a Teams reply or the
-///                               trajectory-opened card (operational, not
-///                               a build: infra's call which name CAM's
-///                               Teams sign-in actually has)
 ///   AIRLOCK_PROPOSALS_ENABLED   `1` or `true` once infra-5e has confirmed
 ///                               the logbook enforces that a trajectory's
 ///                               chain takes entries only from its own loop
@@ -54,8 +50,6 @@ import 'dart:io';
 
 import 'package:is_airlock/is_airlock.dart';
 import 'package:is_logbook_client/is_logbook_client.dart' show LogbookReader;
-import 'package:is_teams_module/is_teams_module.dart'
-    show TeamsRequestsAnsweringEvents;
 
 Future<void> main() async {
   final logbookSocket = Platform.environment['AIRLOCK_LOGBOOK_SOCKET'];
@@ -63,19 +57,16 @@ Future<void> main() async {
   final webDriverSocket = Platform.environment['AIRLOCK_WEB_DRIVER_SOCKET'];
   final modelDriverSockets =
       Platform.environment['AIRLOCK_MODEL_DRIVER_SOCKETS'];
-  final teamsSignInName = Platform.environment['AIRLOCK_TEAMS_SIGN_IN'];
   final webDriverUserName = Platform.environment['AIRLOCK_WEB_DRIVER_USER'];
   if (logbookSocket == null ||
       logbookReadSocket == null ||
       webDriverSocket == null ||
       modelDriverSockets == null ||
-      teamsSignInName == null ||
       webDriverUserName == null) {
     stderr.writeln(
       'airlock service: set AIRLOCK_LOGBOOK_SOCKET, '
       'AIRLOCK_LOGBOOK_READ_SOCKET, AIRLOCK_WEB_DRIVER_SOCKET, '
-      'AIRLOCK_MODEL_DRIVER_SOCKETS, AIRLOCK_TEAMS_SIGN_IN and '
-      'AIRLOCK_WEB_DRIVER_USER',
+      'AIRLOCK_MODEL_DRIVER_SOCKETS and AIRLOCK_WEB_DRIVER_USER',
     );
     exitCode = 64;
     return;
@@ -103,9 +94,6 @@ Future<void> main() async {
     exitCode = 64;
     return;
   }
-  final teamsSignIn =
-      SignIn.parse(teamsSignInName) ??
-      (throw StateError('AIRLOCK_TEAMS_SIGN_IN: not a sign-in name'));
   final RoutesModelCallsBySignIn modelDriver;
   try {
     modelDriver = RoutesModelCallsBySignIn.fromSocketsFile(
@@ -122,13 +110,6 @@ Future<void> main() async {
     LogbookClient(logbookSocket),
     decide: _decide,
     entryOn: entryIndex.entryOn,
-    rawEntry: entryIndex.raw,
-    registryByScheme: {
-      ExternalSystemScheme.parse('teams')!: (
-        module: const TeamsRequestsAnsweringEvents(),
-        signIn: teamsSignIn,
-      ),
-    },
   );
 
   final proposalsEnabled = switch (
@@ -181,39 +162,70 @@ Decision _decide(
   Reach reach,
   WhatMayLeaveThisMachine rules,
 ) => switch (reach) {
-  Reads() || Writes() || Starts() => const Allow(by: DecidedBy.rules),
-  AnswersEvent(:final requests) => _grantEach(rules, requests),
-  FetchesFromWeb(:final origin, :final signIn) => _grant(rules, origin, signIn),
+  Reads() || Writes() || Starts() => const Allow.withNoPaths(by: DecidedBy.rules),
+  MakesWebRequests(:final requests) => _grantEach(rules, requests),
+  FetchesFromWeb(:final origin, :final path, :final signIn) =>
+    _grant(rules, origin, path, signIn),
   CallsTheModel(:final signIn) => rules.allowsModelCall(signIn)
-      ? const Allow(by: DecidedBy.rules)
+      ? const Allow.withNoPaths(by: DecidedBy.rules)
       : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
 };
 
-/// Every one of [requests] granted together: an [AnswersEvent] sends them
-/// all or none, so the first missing grant denies the whole reach.
-Decision _grantEach(WhatMayLeaveThisMachine rules, List<Request> requests) {
+/// Every one of [requests] granted together, in order: a [MakesWebRequests]
+/// sends them all or none, so the first missing grant denies the whole
+/// reach, and the surviving grant collects one path prefix per request for
+/// [Allow.grantedPathPrefixes] — never a web request unbounded.
+///
+/// `replyEndpoint` is not yet available here: it is written by the docking
+/// station on the admission that starts a trajectory, but exposed only by
+/// is_docking_station_api 0.2.0+, which this package does not yet depend
+/// on (tasks 62/67, still blocked). So a [ToOwnReplyEndpoint] grant never
+/// matches here yet — a real gap, not a guess, until that dependency lands
+/// and this reads the trajectory's own recorded endpoint.
+Decision _grantEach(WhatMayLeaveThisMachine rules, List<ProposedRequest> requests) {
+  final prefixes = <PathPrefix>[];
   for (final request in requests) {
-    final decision = _grant(rules, request.origin, request.signIn);
-    if (decision is Deny) return decision;
-  }
-  return const Allow(by: DecidedBy.rules);
-}
-
-/// Whether [rules] grants a request to [origin] as [signIn]. Nothing is
-/// relied on beyond the rules yet: `leasedNow` and `pooled` are both empty
-/// until loop_launcher's lease-tracking entries exist (task 49) — verified
-/// against is_flight_rules 0.3.0's own source that an empty `leasedNow`/
-/// `pooled` behaves exactly as the old `allowsWebRequest` did.
-Decision _grant(WhatMayLeaveThisMachine rules, Origin origin, SignIn? signIn) =>
-    switch (rules.grantFor(
-      origin,
-      signIn,
+    switch (rules.webRequestsGrantFor(
+      request.origin,
+      request.path,
+      request.signIn,
       leasedNow: const {},
       pooled: const {},
+      replyEndpoint: null,
     )) {
-      null => Deny(
-        'not granted: $origin as ${signIn ?? 'no sign-in'}',
-        by: DecidedBy.rules,
-      ),
-      _ => const Allow(by: DecidedBy.rules),
-    };
+      case null:
+        return Deny(
+          'not granted: ${request.origin} as ${request.signIn ?? 'no sign-in'}',
+          by: DecidedBy.rules,
+        );
+      case (grant: _, grantedPathPrefix: final prefix):
+        prefixes.add(prefix);
+    }
+  }
+  return Allow(by: DecidedBy.rules, grantedPathPrefixes: prefixes);
+}
+
+/// Whether [rules] grants a fetch to [path] on [origin] as [signIn].
+/// Nothing is relied on beyond the rules yet: `leasedNow` and `pooled` are
+/// both empty until loop_launcher's lease-tracking entries exist (task 49).
+Decision _grant(
+  WhatMayLeaveThisMachine rules,
+  Origin origin,
+  WebPath path,
+  SignIn? signIn,
+) => switch (rules.fetchGrantFor(
+  origin,
+  path,
+  signIn,
+  leasedNow: const {},
+  pooled: const {},
+)) {
+  null => Deny(
+    'not granted: $origin as ${signIn ?? 'no sign-in'}',
+    by: DecidedBy.rules,
+  ),
+  (grant: _, grantedPathPrefix: final prefix) => Allow(
+    by: DecidedBy.rules,
+    grantedPathPrefixes: [prefix],
+  ),
+};

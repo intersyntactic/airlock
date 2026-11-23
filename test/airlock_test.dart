@@ -3,14 +3,15 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:is_airlock/is_airlock.dart';
-import 'package:is_conversation_shapes/is_conversation_shapes.dart'
-    show SourceMessageId, UserSaid;
-import 'package:is_docking_station/is_docking_station.dart';
-import 'package:is_logbook/is_logbook.dart';
-import 'package:is_shapes/is_shapes.dart' show ActorId;
+import 'package:is_logbook/is_logbook.dart' show Intact, ObjectId;
 import 'package:test/test.dart';
 
 import 'logbook_service_harness.dart';
+
+/// `/`, the prefix every test here grants a web request or fetch under:
+/// none of them test partial-site grants, only that a grant reaches the
+/// driver at all.
+final _wholeSite = PathPrefix.parse('/')!;
 
 /// A trajectory id, as the hash of some entry that started it. [seed]
 /// stands in for that entry's bytes; this test never reads a trajectory id
@@ -35,16 +36,16 @@ final class _FakeFileDriver implements ReadsAndWritesFiles {
       const Ran(Wrote(replaced: false));
 }
 
-/// A [CarriesOutWebRequests] that hands every [Request] to [onSend] and
-/// sends back whatever it returns.
+/// A [CarriesOutWebRequests] that hands every [GrantedRequest] to [onSend]
+/// and sends back whatever it returns.
 final class _FakeWebDriver implements CarriesOutWebRequests {
   _FakeWebDriver(this.onSend);
 
-  final Outcome<WebResponse> Function(Request request) onSend;
+  final Outcome<WebResponse> Function(GrantedRequest request) onSend;
 
   @override
   Future<Outcome<WebResponse>> carryOutWebRequest(
-    Request request,
+    GrantedRequest request,
   ) async => onSend(request);
 }
 
@@ -107,30 +108,36 @@ void main() {
       'request': EntryId.of(utf8.encode('fake model request')).hex,
     },
   });
+  /// Grants a [FetchesFromWeb] or [MakesWebRequests] reach the whole site,
+  /// under no path restriction; every other reach is allowed with no paths
+  /// to grant at all, since only a web reach's grant is ever checked.
+  Decision defaultDecide(TrajectoryId trajectory, Reach reach, String rules) =>
+      switch (reach) {
+        FetchesFromWeb() =>
+          Allow(by: DecidedBy.rules, grantedPathPrefixes: [_wholeSite]),
+        MakesWebRequests(:final requests) => Allow(
+          by: DecidedBy.rules,
+          grantedPathPrefixes: List.filled(requests.length, _wholeSite),
+        ),
+        _ => const Allow.withNoPaths(by: DecidedBy.rules),
+      };
+
   Airlock<String, int> airlock({
     Decision Function(TrajectoryId trajectory, Reach reach, String rules)? decide,
-    ({String kind, ObjectId? previous, String body})? Function(EntryId id)?
-    rawEntry,
-    Map<ExternalSystemScheme, ({BuildsRequestsAnsweringEvents module, SignIn signIn})>?
-    registryByScheme,
   }) => Airlock<String, int>(
     LogbookClient(harness.socketPath),
-    decide: decide ?? (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
+    decide: decide ?? defaultDecide,
     entryOn: (trajectory, entry) async => entry == modelProposalId
         ? Ran((kind: ActionProposedByAgentLoop.kind, body: modelProposalBody))
         : Ran((kind: outcomeOfProposedActionKind, body: resultBody)),
-    rawEntry: rawEntry ?? (id) => null,
-    registryByScheme: registryByScheme ?? const {},
   );
 
   /// A trajectory on [a], with one [_FakeFileDriver] and one
-  /// [_FakeWebDriver] sending back [onSend], good for driving a real run
-  /// through `_consider` so the library itself produces a real result
-  /// (whose constructor this package can no longer call directly).
+  /// [_FakeWebDriver] sending back [onSend].
   Trajectory<String, int> path(
     Airlock<String, int> a, {
     String rules = 'rules',
-    Outcome<WebResponse> Function(Request request)? onSend,
+    Outcome<WebResponse> Function(GrantedRequest request)? onSend,
   }) => Trajectory<String, int>(
     id: _id('conv-1'),
     drivers: [
@@ -141,6 +148,16 @@ void main() {
     rules: rules,
     suit: Suit.parse('suit-1')!,
   );
+
+  /// The crux for one action at [place] on [trajectory], driving a real run
+  /// through the trajectory's own `consider` — the only way to reach a
+  /// result the library produces itself, since its constructor is private —
+  /// by writing a made-up `action-proposed-by-agent-loop` body through
+  /// [Crux.forTheModelCall] (one action per crux, matching `.at`'s old
+  /// one-place-per-call shape) and reading the real outcome entry
+  /// [trajectory]'s airlock wrote back for it.
+  Crux at(Trajectory<String, int> trajectory, int place) =>
+      Crux.forTheModelCall(_DirectLink(trajectory, place, harness), turn: place);
 
   test('decide delegates to the rules given to it', () async {
     var decided = false;
@@ -167,7 +184,7 @@ void main() {
       then: Done.new,
     );
 
-    await run.next(path(a).at(1));
+    await run.next(at(path(a), 1));
 
     // Reads the same Logbook the harness's service has open — a second
     // Logbook.open on this directory, in this process, is refused.
@@ -194,12 +211,12 @@ void main() {
           );
 
       await send(SignIn.parse('cam-teams')).next(
-        path(
-          allowed,
-          onSend: (r) => const Ran(WebResponse(status: 201)),
-        ).at(1),
+        at(
+          path(allowed, onSend: (r) => const Ran(WebResponse(status: 201))),
+          1,
+        ),
       );
-      await send(null).next(path(denied).at(2));
+      await send(null).next(at(path(denied), 2));
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
       expect(lines, contains(contains('fetches $origin as cam-teams')));
@@ -230,34 +247,65 @@ void main() {
       );
 
       await send().next(
-        path(
-          a,
-          onSend: (r) =>
-              const Ran(WebResponse(status: 201, created: 'abc-123')),
-        ).at(1),
-      );
-      await send().next(
-        path(a, onSend: (r) => const Ran(WebResponse(status: 201))).at(2),
-      );
-      await send().next(
-        path(
-          a,
-          onSend: (r) => const Ran(
-            WebResponse(status: 400, refusedBecause: 'error.code'),
+        at(
+          path(
+            a,
+            onSend: (r) =>
+                const Ran(WebResponse(status: 201, created: 'abc-123')),
           ),
-        ).at(3),
+          1,
+        ),
+      );
+      await send().next(
+        at(path(a, onSend: (r) => const Ran(WebResponse(status: 201))), 2),
+      );
+      await send().next(
+        at(
+          path(
+            a,
+            onSend: (r) => const Ran(
+              WebResponse(status: 400, refusedBecause: 'error.code'),
+            ),
+          ),
+          3,
+        ),
       );
 
       final resultLines = _entries(
         harness.journalDir,
-      ).map(utf8.decode).where((l) => l.startsWith('result\n'));
-      final humanLines = resultLines
+      ).map(utf8.decode).where((l) => l.startsWith('$outcomeOfProposedActionKind\n'));
+      final responses = resultLines
           .map((l) => JsonObject.decode(l.substring(l.indexOf('{'))))
-          .map((body) => body.string('line'))
+          .map((body) => body.object('result').object('output'))
           .toList();
-      expect(humanLines, contains(endsWith('-> ran created=abc-123')));
-      expect(humanLines, contains(endsWith('-> ran')));
-      expect(humanLines, contains(endsWith('-> ran refusedBecause=error.code')));
+      expect(
+        responses,
+        contains(
+          predicate<JsonObject>(
+            (r) =>
+                r.integer('status') == 201 &&
+                r.string('created') == 'abc-123',
+          ),
+        ),
+      );
+      expect(
+        responses,
+        contains(
+          predicate<JsonObject>(
+            (r) => r.integer('status') == 201 && r.stringOrNull('created') == null,
+          ),
+        ),
+      );
+      expect(
+        responses,
+        contains(
+          predicate<JsonObject>(
+            (r) =>
+                r.integer('status') == 400 &&
+                r.string('refusedBecause') == 'error.code',
+          ),
+        ),
+      );
     },
   );
 
@@ -281,20 +329,23 @@ void main() {
       );
 
       await send().next(
-        path(
-          a,
-          onSend: (r) => Ran(
-            WebResponse(
-              status: 200,
-              body: const TextBody('hello'),
-              redirects: [redirectedTo],
+        at(
+          path(
+            a,
+            onSend: (r) => Ran(
+              WebResponse(
+                status: 200,
+                body: const TextBody('hello'),
+                redirects: [redirectedTo],
+              ),
             ),
           ),
-        ).at(1),
+          1,
+        ),
       );
 
       final lines = _entries(harness.journalDir).map(utf8.decode).toList();
-      final resultLine = lines.firstWhere((l) => l.startsWith('result\n'));
+      final resultLine = lines.firstWhere((l) => l.startsWith('$outcomeOfProposedActionKind\n'));
       final body = JsonObject.decode(resultLine.substring(resultLine.indexOf('{')));
       final output = body.object('result').object('output');
       expect(output.strings('redirects'), [redirectedTo.toString()]);
@@ -315,7 +366,7 @@ void main() {
       final received = ActionProposedByAgentLoop.read(
         jsonEncode({
           'program': 'read',
-          'place': [0, 1],
+          'place': [0, 0, 1],
           'input': '',
         }),
       );
@@ -351,243 +402,41 @@ void main() {
       expect(read!.proposed, proposedId);
     },
   );
-
-  group('replyRequests and trajectoryOpenedRequests', () {
-    MessageSaid messageSaid(String scheme) => MessageSaid(
-      addressInExternalSystem: AddressInExternalSystem.parse(
-        '$scheme:19:abc@thread.v2',
-      )!,
-      containingAddress: null,
-      addressedTo: null,
-      key: EventKey.parse('msg-1')!,
-      node: UserSaid(
-        author: ActorId.parse('teams:tenant-1/user-1')!,
-        source: SourceMessageId.parse('msg-1')!,
-        text: 'hello',
-      ),
-    );
-
-    // The bytes the logbook actually hashes an admission entry's id from:
-    // is_logbook 0.2.1's own wire, `<kind>\n<previous-hex-or-dash>\n<body>`
-    // (is_logbook's lib/service.dart's `_append`) — the same bytes
-    // [Airlock]'s own `_turnStartingAdmission` rebuilds.
-    Uint8List admissionEntryBytes(
-      EventAdmittedToMission admission, {
-      ObjectId? previous,
-    }) {
-      final (kind, body) = encodeDecision(admission);
-      return Uint8List.fromList([
-        ...utf8.encode('$kind\n${previous?.hex ?? '-'}\n'),
-        ...body,
-      ]);
-    }
-
-    ({String kind, ObjectId? previous, String body}) rawOf(
-      Uint8List entryBytes,
-    ) {
-      final text = utf8.decode(entryBytes);
-      final firstBreak = text.indexOf('\n');
-      final secondBreak = text.indexOf('\n', firstBreak + 1);
-      return (
-        kind: text.substring(0, firstBreak),
-        previous: null,
-        body: text.substring(secondBreak + 1),
-      );
-    }
-
-    ({String kind, ObjectId? previous, String body}) relayedEventEntry(
-      Uint8List bytes,
-    ) => (
-      kind: 'event',
-      previous: null,
-      body: jsonEncode({
-        'at': DateTime.now().toUtc().toIso8601String(),
-        'source': 'teams',
-        'bytes': base64Encode(bytes),
-      }),
-    );
-
-    test(
-      'trajectoryOpenedRequests reads the opening admission by its own '
-      'hash, decodes the relayed event, and hands both to the address '
-      "scheme's module",
-      () async {
-        final eventEntryId = EntryId.of(utf8.encode('relayed-event-fixture'));
-        final relayedBytes = utf8.encode('{"fake":"activity"}');
-        final relayed = relayedEventEntry(relayedBytes);
-
-        final admission = EventAdmittedToMission(
-          ObjectId.parse(eventEntryId.hex)!,
-          by: DecidedBy.rules,
-          reading: messageSaid('teams'),
-          placement: const StartsTrajectory(StartsMission()),
-          rules: JsonObject.of({'ok': true}),
-          startsTurn: true,
-        );
-        final entryBytes = admissionEntryBytes(admission);
-        final trajectory = TrajectoryId.of(entryBytes);
-        final admissionEntryId = EntryId.of(entryBytes);
-        final raw = rawOf(entryBytes);
-
-        Uint8List? capturedRelayedEvent;
-        SignIn? capturedSignIn;
-        final module = _FakeAnsweringModule(
-          onOpened: (relayedEvent, signIn) {
-            capturedRelayedEvent = relayedEvent;
-            capturedSignIn = signIn;
-            return [Request(Origin.parse('https://example.test')!, signIn: signIn)];
-          },
-        );
-
-        final a = airlock(
-          rawEntry: (id) => switch (id.hex) {
-            final hex when hex == admissionEntryId.hex => raw,
-            final hex when hex == eventEntryId.hex => relayed,
-            _ => null,
-          },
-          registryByScheme: {
-            ExternalSystemScheme.parse('teams')!: (
-              module: module,
-              signIn: SignIn.parse('cam-teams')!,
-            ),
-          },
-        );
-
-        switch (await a.trajectoryOpenedRequests(trajectory)) {
-          case Refused(:final why):
-            fail('expected Ran, got Refused: $why');
-          case Ran(output: final requests):
-            expect(requests, hasLength(1));
-        }
-        expect(capturedRelayedEvent, relayedBytes);
-        expect(capturedSignIn, SignIn.parse('cam-teams'));
-      },
-    );
-
-    test(
-      'replyRequests reads a later-turn admission by its explicit '
-      'trajectory field, with no hash to rebuild',
-      () async {
-        final trajectory = _id('turn-1-starts-this-trajectory');
-        final eventEntryId = EntryId.of(utf8.encode('relayed-event-fixture-2'));
-        final relayedBytes = utf8.encode('{"fake":"activity-2"}');
-        final respondsTo = EntryId.of(utf8.encode('turn-2-admission'));
-
-        final admission = EventAdmittedToMission(
-          ObjectId.parse(eventEntryId.hex)!,
-          by: DecidedBy.rules,
-          reading: messageSaid('teams'),
-          placement: OnTrajectory(trajectory),
-          startsTurn: true,
-        );
-        final (kind, body) = encodeDecision(admission);
-
-        var called = false;
-        final module = _FakeAnsweringModule(
-          onReply: (relayedEvent, signIn) {
-            called = true;
-            return [Request(Origin.parse('https://example.test')!, signIn: signIn)];
-          },
-        );
-
-        final a = airlock(
-          rawEntry: (id) => switch (id.hex) {
-            final hex when hex == respondsTo.hex =>
-              (kind: kind.toString(), previous: null, body: utf8.decode(body)),
-            final hex when hex == eventEntryId.hex =>
-              relayedEventEntry(relayedBytes),
-            _ => null,
-          },
-          registryByScheme: {
-            ExternalSystemScheme.parse('teams')!: (
-              module: module,
-              signIn: SignIn.parse('cam-teams')!,
-            ),
-          },
-        );
-
-        final reply = const FinishedReply(text: 'a reply');
-        switch (await a.replyRequests(trajectory, respondsTo, reply)) {
-          case Refused(:final why):
-            fail('expected Ran, got Refused: $why');
-          case Ran(output: final requests):
-            expect(requests, hasLength(1));
-        }
-        expect(called, isTrue);
-      },
-    );
-
-    test('replyRequests refuses when respondsTo is not in the logbook', () async {
-      final a = airlock(rawEntry: (id) => null);
-      switch (await a.replyRequests(
-        _id('some-trajectory'),
-        EntryId.of(utf8.encode('nowhere')),
-        const FinishedReply(text: 'a reply'),
-      )) {
-        case Ran():
-          fail('expected Refused');
-        case Refused(:final why):
-          expect(why, contains('not in the logbook'));
-      }
-    });
-
-    test(
-      'replyRequests refuses an admission that is on another trajectory',
-      () async {
-        final admittedTrajectory = _id('the-right-trajectory');
-        final askedAbout = _id('a-different-trajectory');
-        final respondsTo = EntryId.of(utf8.encode('turn-2-admission'));
-        final admission = EventAdmittedToMission(
-          ObjectId.of(utf8.encode('relayed-event-fixture-3')),
-          by: DecidedBy.rules,
-          reading: messageSaid('teams'),
-          placement: OnTrajectory(admittedTrajectory),
-          startsTurn: true,
-        );
-        final (kind, body) = encodeDecision(admission);
-
-        final a = airlock(
-          rawEntry: (id) => id.hex == respondsTo.hex
-              ? (kind: kind.toString(), previous: null, body: utf8.decode(body))
-              : null,
-        );
-
-        switch (await a.replyRequests(
-          askedAbout,
-          respondsTo,
-          const FinishedReply(text: 'a reply'),
-        )) {
-          case Ran():
-            fail('expected Refused');
-          case Refused(:final why):
-            expect(why, contains('does not admit an event on'));
-        }
-      },
-    );
-  });
 }
 
-/// A [BuildsRequestsAnsweringEvents] that hands whichever call it gets to
-/// [onReply] or [onOpened], so a test can inspect exactly what it was given
-/// and choose what it builds back.
-final class _FakeAnsweringModule implements BuildsRequestsAnsweringEvents {
-  _FakeAnsweringModule({this.onReply, this.onOpened});
+/// Drives one action of a crux through a real [Trajectory]'s own
+/// `consider`, the only way to reach a result [Airlock] produces itself
+/// (its constructor is private): [writeProposal] hands the crux's own
+/// `ActionProposedByAgentLoop` json straight to `consider`, tagged with a
+/// made-up [EntryId] unique to this link, and [outcomeNaming] reads back
+/// the real `outcome-of-proposed-action` entry the airlock wrote for it
+/// out of the harness's own logbook. Good for one action — one crux is
+/// built per call to [AirlockTestHelpers.at], same as `.at` fixed one
+/// place per call before `Crux` existed.
+final class _DirectLink implements ProposesActionsThroughTheLogbook {
+  _DirectLink(this.trajectory, this.place, this.harness);
 
-  final List<Request>? Function(Uint8List relayedEvent, SignIn signIn)?
-  onReply;
-  final List<Request>? Function(Uint8List relayedEvent, SignIn signIn)?
-  onOpened;
-
-  @override
-  List<Request>? replyRequests({
-    required Uint8List relayedEvent,
-    required ModelReply reply,
-    required SignIn signIn,
-  }) => onReply?.call(relayedEvent, signIn);
+  final Trajectory<String, int> trajectory;
+  final int place;
+  final LogbookServiceHarness harness;
 
   @override
-  List<Request>? trajectoryOpenedRequests({
-    required Uint8List relayedEvent,
-    required SignIn signIn,
-  }) => onOpened?.call(relayedEvent, signIn);
+  Future<EntryId> writeProposal(String body) async {
+    final proposal = ActionProposedByAgentLoop.read(body);
+    if (proposal is! ActionProposedByAgentLoop) {
+      throw StateError('test built an unreadable proposal: $body');
+    }
+    final proposed = EntryId.of(utf8.encode('direct-link-$place-$body'));
+    await trajectory.consider(proposal, place, proposed: proposed);
+    return proposed;
+  }
+
+  @override
+  Future<String> outcomeNaming(EntryId proposed) async {
+    final lines = _entries(harness.journalDir).map(utf8.decode);
+    final line = lines.firstWhere(
+      (l) => l.contains('"proposed":"${proposed.hex}"'),
+    );
+    return line.substring(line.indexOf('{'));
+  }
 }

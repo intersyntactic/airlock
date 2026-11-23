@@ -23,7 +23,7 @@ final class WebRequestDriverSocket implements CarriesOutWebRequests {
   final CheckDriver? checkDriver;
 
   @override
-  Future<Outcome<WebResponse>> carryOutWebRequest(Request request) async {
+  Future<Outcome<WebResponse>> carryOutWebRequest(GrantedRequest request) async {
     try {
       final s = await Socket.connect(
         InternetAddress(socket.path, type: InternetAddressType.unix),
@@ -33,7 +33,7 @@ final class WebRequestDriverSocket implements CarriesOutWebRequests {
         s.destroy();
         return Refused('web request driver: $why');
       }
-      s.add(utf8.encode(jsonEncode(encodeRequest(request))));
+      s.add(utf8.encode(jsonEncode(encodeGrantedRequest(request))));
       await s.close();
       final answer = await utf8.decoder.bind(s).join();
       if (answer.isEmpty) {
