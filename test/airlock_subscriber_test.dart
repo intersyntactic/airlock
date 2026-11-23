@@ -582,4 +582,204 @@ void main() {
       );
     },
   );
+
+  test(
+    'a proposal arriving before its trajectory has rules or suit is held, '
+    'not refused, and decided for real once they arrive late (task 55, '
+    'Case A)',
+    () async {
+      final admittedBody = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'event': ObjectId.of(utf8.encode('fake event')).hex,
+            'by': 'rules',
+            'translatedEvent': {'case': 'something-else'},
+            'startsMission': true,
+            'startsTrajectory': true,
+            'rules': _rulesJson,
+          }),
+        ),
+      );
+      final admitted = _fakeEntry(
+        'event-admitted-to-mission',
+        null,
+        admittedBody,
+      );
+      final trajectoryId = TrajectoryId.of(admitted.recorded);
+
+      final assignedBody = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'trajectory': trajectoryId.hex,
+            'mission': MissionId.of(admitted.recorded).hex,
+            'loopUser': 'loop-1',
+            'suit': 'suit-1',
+          }),
+        ),
+      );
+      final assigned = _fakeEntry(
+        'users-assigned-to-trajectory',
+        null,
+        assignedBody,
+      );
+
+      final proposedBody = Uint8List.fromList(
+        utf8.encode(jsonEncode({'program': 'read', 'place': 1, 'input': ''})),
+      );
+      final proposed = _fakeEntry(
+        ActionProposedByAgentLoop.kind,
+        assigned.id,
+        proposedBody,
+      );
+      final proposedId = EntryId.of(proposed.recorded);
+
+      final entryIndex = EntryIndex();
+      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+        LogbookClient(harness.socketPath),
+        decide: (trajectory, reach, rules) =>
+            const Allow.withNoPaths(by: DecidedBy.rules),
+        entryOn: entryIndex.entryOn,
+      );
+
+      unawaited(
+        runAirlockService(
+          // The suit arrives, then the proposal — with no rules at all yet.
+          // The pre-task-55 behaviour (consider()'s no-rules branch
+          // refusing immediately) would answer this Refused right here,
+          // before the admitted entry carrying its rules ever got a chance
+          // to arrive.
+          subscribe: () async* {
+            yield assigned;
+            yield proposed;
+            yield const CaughtUp(null);
+            await Future<void>.delayed(const Duration(milliseconds: 300));
+            yield admitted;
+          },
+          airlock: airlock,
+          drivers: const [],
+          proposalsEnabled: true,
+          entryIndex: entryIndex,
+          writeRejection: airlock.writeRejection,
+          writeLogbookEntry: airlock.writeLogbookEntry,
+          say: (_) {},
+        ),
+      );
+
+      final early = await _awaitAnswer(
+        harness,
+        proposedId,
+        timeout: const Duration(milliseconds: 150),
+      );
+      expect(early, isNull, reason: 'held, not yet answered while no rules');
+
+      final answer = await _awaitAnswer(harness, proposedId);
+      expect(answer, isNotNull, reason: 'no answer after rules arrived late');
+      final outcome = decodeOutcome(
+        answer!.result,
+        (json, field) => decodeReadResult(json, field),
+      );
+      // Decided for real (refused only for lack of a driver), not the
+      // fail-closed "no rules or suit" rejection the old behaviour would
+      // have already sent before the admitted entry arrived.
+      expect(outcome, isA<Refused>());
+      expect((outcome as Refused).why, isNot(contains('no rules or suit')));
+    },
+  );
+
+  test(
+    'a trajectory that closes before it ever got rules or suit refuses '
+    'what it was holding, rather than leaving it waiting forever (task 55, '
+    'Case A)',
+    () async {
+      final trajectoryId = TrajectoryId.of(
+        utf8.encode('fake trajectory that never gets rules'),
+      );
+      final mission = MissionId.of(utf8.encode('fake mission'));
+
+      final assigned = _fakeEntry(
+        'users-assigned-to-trajectory',
+        null,
+        Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              'trajectory': trajectoryId.hex,
+              'mission': mission.hex,
+              'loopUser': 'loop-1',
+              'suit': 'suit-1',
+            }),
+          ),
+        ),
+      );
+
+      final proposed = _fakeEntry(
+        ActionProposedByAgentLoop.kind,
+        assigned.id,
+        Uint8List.fromList(
+          utf8.encode(jsonEncode({'program': 'read', 'place': 1, 'input': ''})),
+        ),
+      );
+      final proposedId = EntryId.of(proposed.recorded);
+
+      final closed = _fakeEntry(
+        'trajectory-closed',
+        null,
+        Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              'by': 'person',
+              'trajectory': trajectoryId.hex,
+              'mission': mission.hex,
+              'operator': 'nick',
+              'reason': 'test',
+            }),
+          ),
+        ),
+      );
+
+      final entryIndex = EntryIndex();
+      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+        LogbookClient(harness.socketPath),
+        decide: (trajectory, reach, rules) =>
+            const Allow.withNoPaths(by: DecidedBy.rules),
+        entryOn: entryIndex.entryOn,
+      );
+
+      unawaited(
+        runAirlockService(
+          // No admitted entry ever arrives for this trajectory: its suit
+          // is known, its rules never are, and then it closes.
+          subscribe: () async* {
+            yield assigned;
+            yield proposed;
+            yield const CaughtUp(null);
+            await Future<void>.delayed(const Duration(milliseconds: 150));
+            yield closed;
+          },
+          airlock: airlock,
+          drivers: const [],
+          proposalsEnabled: true,
+          entryIndex: entryIndex,
+          writeRejection: airlock.writeRejection,
+          writeLogbookEntry: airlock.writeLogbookEntry,
+          say: (_) {},
+        ),
+      );
+
+      final early = await _awaitAnswer(
+        harness,
+        proposedId,
+        timeout: const Duration(milliseconds: 80),
+      );
+      expect(early, isNull, reason: 'held, not yet answered before closure');
+
+      final answer = await _awaitAnswer(harness, proposedId);
+      expect(answer, isNotNull, reason: 'no answer after the trajectory closed');
+      final outcome = decodeOutcome(
+        answer!.result,
+        (json, field) => decodeReadResult(json, field),
+      );
+      expect(outcome, isA<Refused>());
+      expect((outcome as Refused).why, contains('closed'));
+    },
+  );
 }
