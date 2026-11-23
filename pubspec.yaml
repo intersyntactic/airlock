@@ -15,7 +15,6 @@ dependencies:
   is_flight_rules: ^0.3.0
   checked_json: ^0.2.1
   is_logbook_client: ^0.2.0
-  is_web_request_driver: ^0.6.0
   is_docking_station: ^0.3.0
   is_teams_module:
     git:

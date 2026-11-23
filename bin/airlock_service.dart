@@ -56,8 +56,6 @@ import 'package:is_airlock/is_airlock.dart';
 import 'package:is_logbook_client/is_logbook_client.dart' show LogbookReader;
 import 'package:is_teams_module/is_teams_module.dart'
     show TeamsRequestsAnsweringEvents;
-import 'package:is_web_request_driver/service.dart'
-    show WebRequestDriverSocket;
 
 Future<void> main() async {
   final logbookSocket = Platform.environment['AIRLOCK_LOGBOOK_SOCKET'];
