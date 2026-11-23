@@ -49,7 +49,7 @@ final class LogbookServiceHarness {
   static Future<LogbookServiceHarness> start(
     List<String> kinds, {
     bool withReadSocket = false,
-    int? Function(String user)? uidOf,
+    UserId? Function(String user)? uidOf,
   }) async {
     final dir = Directory.systemTemp.createTempSync('logbook_service_test_');
     final me = Process.runSync('id', ['-un']).stdout.toString().trim();
@@ -86,8 +86,10 @@ final class LogbookServiceHarness {
   }
 }
 
-int? _uidOfUser(String user) {
-  if (int.tryParse(user) case final uid?) return uid;
+UserId? _uidOfUser(String user) {
+  if (int.tryParse(user) case final uid?) return UserId.parse(uid);
   final r = Process.runSync('id', ['-u', user]);
-  return r.exitCode == 0 ? int.tryParse(r.stdout.toString().trim()) : null;
+  if (r.exitCode != 0) return null;
+  final uid = int.tryParse(r.stdout.toString().trim());
+  return uid == null ? null : UserId.parse(uid);
 }
