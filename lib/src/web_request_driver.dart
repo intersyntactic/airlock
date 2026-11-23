@@ -12,9 +12,8 @@ import 'driver_release.dart';
 /// back the one answer line. Holds no secret.
 ///
 /// Held here rather than imported from the web request driver's own
-/// package: depending on that package's code, not just the wire protocol
-/// it speaks, would mean a change to the driver's own internals could
-/// break the airlock that never actually calls through it (Nick, 23 Nov).
+/// package, so a change to the driver's internals can't break the
+/// airlock that never actually calls through it.
 final class WebRequestDriverSocket implements CarriesOutWebRequests {
   /// [checkDriver] runs on every connection before the request is sent, so
   /// a driver it refuses never sees the request.

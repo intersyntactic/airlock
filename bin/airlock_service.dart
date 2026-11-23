@@ -15,10 +15,10 @@
 ///   AIRLOCK_MODEL_DRIVER_SOCKETS a JSON object's path, sign-in name ->
 ///     `{"socket": ..., "user": ...}` — that sign-in's model driver's Unix
 ///     socket, and the process user it must be running as, checked the
-///     same way as AIRLOCK_WEB_DRIVER_USER (Nick's ruling, 22 Nov: a
-///     release must not check less than what is already live). The user
-///     lives in the same entry as the socket, never a second map beside
-///     it, so a sign-in can't have one without the other.
+///     same way as AIRLOCK_WEB_DRIVER_USER: a release must not check less
+///     than what is already live. The user lives in the same entry as the
+///     socket, never a second map beside it, so a sign-in can't have one
+///     without the other.
 ///   AIRLOCK_TEAMS_SIGN_IN       which sign-in posts a Teams reply or the
 ///                               trajectory-opened card (operational, not
 ///                               a build: infra's call which name CAM's
@@ -27,8 +27,8 @@
 ///                               the logbook enforces that a trajectory's
 ///                               chain takes entries only from its own loop
 ///                               user; unset or anything else means no
-///                               `proposed` entry is acted on (task 20,
-///                               Nick's call — flag only, no version check).
+///                               `proposed` entry is acted on — flag only,
+///                               no version check.
 ///   AIRLOCK_WEB_DRIVER_USER     the web driver's own process's user, by
 ///                               name or numeric uid, checked against the
 ///                               kernel's own report of who connects
@@ -112,7 +112,9 @@ Future<void> main() async {
       File(modelDriverSockets).readAsStringSync(),
     );
   } on FormatException catch (e) {
-    stderr.writeln('airlock service: AIRLOCK_MODEL_DRIVER_SOCKETS: ${e.message}');
+    stderr.writeln(
+      'airlock service: AIRLOCK_MODEL_DRIVER_SOCKETS: ${e.message}',
+    );
     exitCode = 64;
     return;
   }
@@ -132,8 +134,8 @@ Future<void> main() async {
   );
 
   final proposalsEnabled = switch (
-      // wire-ok: an environment variable, a boundary string
-      Platform.environment['AIRLOCK_PROPOSALS_ENABLED']?.toLowerCase()) {
+  // wire-ok: an environment variable, a boundary string
+  Platform.environment['AIRLOCK_PROPOSALS_ENABLED']?.toLowerCase()) {
     '1' || 'true' => true,
     _ => false,
   };
@@ -184,9 +186,10 @@ Decision _decide(
   Reads() || Writes() || Starts() => const Allow(by: DecidedBy.rules),
   AnswersEvent(:final requests) => _grantEach(rules, requests),
   FetchesFromWeb(:final origin, :final signIn) => _grant(rules, origin, signIn),
-  CallsTheModel(:final signIn) => rules.allowsModelCall(signIn)
-      ? const Allow(by: DecidedBy.rules)
-      : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
+  CallsTheModel(:final signIn) =>
+    rules.allowsModelCall(signIn)
+        ? const Allow(by: DecidedBy.rules)
+        : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
 };
 
 /// Every one of [requests] granted together: an [AnswersEvent] sends them

@@ -13,7 +13,9 @@ void main() {
     ServerSocket? server;
 
     setUp(() async {
-      directory = await Directory.systemTemp.createTemp('web_request_driver_test');
+      directory = await Directory.systemTemp.createTemp(
+        'web_request_driver_test',
+      );
     });
 
     tearDown(() async {
@@ -26,9 +28,15 @@ void main() {
     /// want one include it), after draining whatever the client sent.
     /// [onRequest] fires once the request has been fully received, so a
     /// test can tell whether the driver ever reached this point.
-    Future<File> serverAnswering(String answer, {void Function()? onRequest}) async {
+    Future<File> serverAnswering(
+      String answer, {
+      void Function()? onRequest,
+    }) async {
       final socket = File('${directory.path}/driver.sock');
-      final address = InternetAddress(socket.path, type: InternetAddressType.unix);
+      final address = InternetAddress(
+        socket.path,
+        type: InternetAddressType.unix,
+      );
       final bound = await ServerSocket.bind(address, 0);
       server = bound;
       bound.listen((client) async {
@@ -42,7 +50,10 @@ void main() {
 
     test('a driver the check refuses never sees the request', () async {
       var sawRequest = false;
-      final socket = await serverAnswering('', onRequest: () => sawRequest = true);
+      final socket = await serverAnswering(
+        '',
+        onRequest: () => sawRequest = true,
+      );
 
       final result = await WebRequestDriverSocket(
         socket,
@@ -57,44 +68,45 @@ void main() {
     test('a driver the check passes carries out the request, with the check called once', () async {
       var checked = 0;
       final socket = await serverAnswering(
-        '${jsonEncode(
-          encodeOutcome(
-            Ran(WebResponse(status: 201, created: '/v3/things')),
-            encodeWebResponse,
-          ),
-        )}\n',
+        '${jsonEncode(encodeOutcome(Ran(WebResponse(status: 201, created: '/v3/things')), encodeWebResponse))}\n',
       );
 
-      final result = await WebRequestDriverSocket(
-        socket,
-        checkDriver: (_) async {
-          checked++;
-          return null;
-        },
-      ).carryOutWebRequest(Request(_origin, path: WebPath.parse('/v3/things')!));
+      final result =
+          await WebRequestDriverSocket(
+            socket,
+            checkDriver: (_) async {
+              checked++;
+              return null;
+            },
+          ).carryOutWebRequest(
+            Request(_origin, path: WebPath.parse('/v3/things')!),
+          );
 
       expect(checked, 1);
       expect(result, isA<Ran<WebResponse>>());
       expect((result as Ran<WebResponse>).output.created, '/v3/things');
     });
 
-    test('refuses an answer from before is_effects\' own wire format', () async {
-      final socket = await serverAnswering('{"ran":{"status":201,"created":"1:abc"}}\n');
+    test(
+      'refuses an answer from before is_effects\' own wire format',
+      () async {
+        final socket = await serverAnswering(
+          '{"ran":{"status":201,"created":"1:abc"}}\n',
+        );
 
-      final result = await WebRequestDriverSocket(socket).carryOutWebRequest(
-        Request(_origin),
-      );
+        final result = await WebRequestDriverSocket(socket)
+            .carryOutWebRequest(Request(_origin));
 
-      expect(result, isA<Refused>());
-      expect((result as Refused).why, contains('unreadable answer'));
-    });
+        expect(result, isA<Refused>());
+        expect((result as Refused).why, contains('unreadable answer'));
+      },
+    );
 
     test('refuses when no service is listening', () async {
       final socket = File('${directory.path}/nothing.sock');
 
-      final result = await WebRequestDriverSocket(socket).carryOutWebRequest(
-        Request(_origin),
-      );
+      final result = await WebRequestDriverSocket(socket)
+          .carryOutWebRequest(Request(_origin));
 
       expect(result, isA<Refused>());
     });
