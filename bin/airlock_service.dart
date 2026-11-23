@@ -106,9 +106,10 @@ Future<void> main() async {
   }
 
   final entryIndex = EntryIndex();
+  final grants = GrantsReaches();
   final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
     LogbookClient(logbookSocket),
-    decide: decideReach,
+    decide: grants.decide,
     entryOn: entryIndex.entryOn,
   );
 
@@ -140,6 +141,7 @@ Future<void> main() async {
     writeRejection: airlock.writeRejection,
     writeLogbookEntry: airlock.writeLogbookEntry,
     say: stderr.writeln,
+    onTrajectoryStarted: grants.noteReplyEndpoint,
   );
 }
 

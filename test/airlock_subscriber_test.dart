@@ -514,4 +514,72 @@ void main() {
       expect(_skippedEntryLines(harness.journalDir), isNotEmpty);
     },
   );
+
+  test(
+    'passes a trajectory\'s own replyEndpoint from its admitted entry to '
+    'onTrajectoryStarted (infra task 215: the replyEndpoint:null gap)',
+    () async {
+      final admittedBody = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'event': ObjectId.of(utf8.encode('fake event')).hex,
+            'by': 'rules',
+            'translatedEvent': {'case': 'something-else'},
+            'startsMission': true,
+            'startsTrajectory': true,
+            'rules': _rulesJson,
+            'replyEndpoint': {
+              'origin': 'https://smba.trafficmanager.net',
+              'pathPrefix': '/v3/conversations/c/activities/',
+            },
+          }),
+        ),
+      );
+      final admitted = _fakeEntry(
+        'event-admitted-to-mission',
+        null,
+        admittedBody,
+      );
+      final trajectoryId = TrajectoryId.of(admitted.recorded);
+
+      final entryIndex = EntryIndex();
+      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+        LogbookClient(harness.socketPath),
+        decide: (trajectory, reach, rules) =>
+            const Allow.withNoPaths(by: DecidedBy.rules),
+        entryOn: entryIndex.entryOn,
+      );
+
+      final started = Completer<(TrajectoryId, AddressPrefix?)>();
+      unawaited(
+        runAirlockService(
+          subscribe: () => Stream.fromIterable([admitted, const CaughtUp(null)]),
+          airlock: airlock,
+          drivers: const [],
+          proposalsEnabled: true,
+          entryIndex: entryIndex,
+          writeRejection: airlock.writeRejection,
+          writeLogbookEntry: airlock.writeLogbookEntry,
+          say: (_) {},
+          onTrajectoryStarted: (trajectory, replyEndpoint) {
+            if (!started.isCompleted) {
+              started.complete((trajectory, replyEndpoint));
+            }
+          },
+        ),
+      );
+
+      final (gotTrajectory, gotReplyEndpoint) = await started.future.timeout(
+        const Duration(seconds: 2),
+      );
+      expect(gotTrajectory, trajectoryId);
+      expect(
+        gotReplyEndpoint,
+        AddressPrefix.of(
+          Origin.parse('https://smba.trafficmanager.net')!,
+          PathPrefix.parse('/v3/conversations/c/activities/')!,
+        ),
+      );
+    },
+  );
 }

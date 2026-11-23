@@ -139,6 +139,8 @@ Future<void> runAirlockService({
   required Future<void> Function(EntryId proposed, String why) writeRejection,
   required Future<void> Function(String line) writeLogbookEntry,
   required void Function(String line) say,
+  void Function(TrajectoryId trajectory, AddressPrefix? replyEndpoint)?
+  onTrajectoryStarted,
 }) async {
   final rulesOf = <TrajectoryId, WhatMayLeaveThisMachine>{};
   final suitOf = <TrajectoryId, Suit>{};
@@ -229,8 +231,10 @@ Future<void> runAirlockService({
           case EntryStartsTrajectory<WhatMayLeaveThisMachine>(
             trajectory: final trajectoryId,
             rules: final rules,
+            replyEndpoint: final replyEndpoint,
           ):
             rulesOf[trajectoryId] = rules;
+            onTrajectoryStarted?.call(trajectoryId, replyEndpoint);
             build(trajectoryId);
           case EntryStartsNoTrajectory<WhatMayLeaveThisMachine>():
             break;
