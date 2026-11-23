@@ -12,6 +12,21 @@ final _site = Origin.parse('https://api.example')!;
 final _otherSite = Origin.parse('https://other.example')!;
 final _signIn = SignIn.parse('cam-teams')!;
 
+/// [GrantsReaches.decide], for a one-off call that doesn't need its own
+/// instance: [trajectory]'s own replyEndpoint, when given, is recorded
+/// before deciding, exactly as `runAirlockService`'s `onTrajectoryStarted`
+/// would.
+Decision decideReach(
+  TrajectoryId trajectory,
+  Reach reach,
+  WhatMayLeaveThisMachine rules, {
+  AddressPrefix? replyEndpoint,
+}) {
+  final grants = GrantsReaches();
+  if (replyEndpoint != null) grants.noteReplyEndpoint(trajectory, replyEndpoint);
+  return grants.decide(trajectory, reach, rules);
+}
+
 WhatMayLeaveThisMachine _rules({
   Iterable<GrantToFetch> fetchesMayReach = const [],
   Iterable<GrantToMakeWebRequests> webRequestsMayReach = const [],
@@ -108,6 +123,64 @@ void main() {
       );
       expect(decision, isA<Deny>());
     });
+  });
+
+  group('GrantsReaches: ToOwnReplyEndpoint', () {
+    final rules = _rules(
+      webRequestsMayReach: [
+        GrantToMakeWebRequests(
+          ToOwnReplyEndpoint.of([_site])!,
+          GoesAsSignIn(_signIn),
+        ),
+      ],
+    );
+
+    test(
+      'grants a reply once the trajectory\'s own replyEndpoint is noted '
+      '(infra task 215 — the replyEndpoint:null gap PR #27 left open)',
+      () {
+        final grants = GrantsReaches();
+        grants.noteReplyEndpoint(
+          _trajectory,
+          AddressPrefix.of(_site, PathPrefix.parse('/reply/')!),
+        );
+        final decision = grants.decide(
+          _trajectory,
+          MakesWebRequests([_requestTo(_site, '/reply/abc')]),
+          rules,
+        );
+        expect(decision, isA<Allow>());
+        expect((decision as Allow).grantedPathPrefixes, [
+          PathPrefix.parse('/reply/'),
+        ]);
+      },
+    );
+
+    test('denies a reply when no replyEndpoint was ever noted', () {
+      final decision = GrantsReaches().decide(
+        _trajectory,
+        MakesWebRequests([_requestTo(_site, '/reply/abc')]),
+        rules,
+      );
+      expect(decision, isA<Deny>());
+    });
+
+    test(
+      'denies a reply to a path outside the noted replyEndpoint\'s prefix',
+      () {
+        final grants = GrantsReaches();
+        grants.noteReplyEndpoint(
+          _trajectory,
+          AddressPrefix.of(_site, PathPrefix.parse('/reply/')!),
+        );
+        final decision = grants.decide(
+          _trajectory,
+          MakesWebRequests([_requestTo(_site, '/elsewhere/abc')]),
+          rules,
+        );
+        expect(decision, isA<Deny>());
+      },
+    );
   });
 
   group('decideReach: FetchesFromWeb', () {

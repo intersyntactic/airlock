@@ -2,42 +2,64 @@ import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_effects/is_effects.dart';
 import 'package:is_flight_rules/is_flight_rules.dart';
 
-/// Every production grant the airlock service makes, under [rules]: files,
-/// writes and programs carry nothing off this machine by themselves, so
-/// none needs a rule here (`WhatMayLeaveThisMachine`'s own doc comment);
-/// only a web request or a model call does.
+/// Every production grant the airlock service makes, under the rules given
+/// to [decide] and the replyEndpoint [noteReplyEndpoint] recorded for the
+/// trajectory deciding: files, writes and programs carry nothing off this
+/// machine by themselves, so none needs a rule here (`WhatMayLeaveThisMachine`'s
+/// own doc comment); only a web request or a model call does.
 ///
 /// Held in lib/, not bin/airlock_service.dart, so a test can reach it
 /// directly rather than only through the whole service.
-Decision decideReach(
-  TrajectoryId trajectory,
-  Reach reach,
-  WhatMayLeaveThisMachine rules,
-) => switch (reach) {
-  Reads() || Writes() || Starts() => const Allow.withNoPaths(by: DecidedBy.rules),
-  MakesWebRequests(:final requests) => grantEachWebRequest(rules, requests),
-  FetchesFromWeb(:final origin, :final path, :final signIn) =>
-    grantFetch(rules, origin, path, signIn),
-  CallsTheModel(:final signIn) => rules.allowsModelCall(signIn)
-      ? const Allow.withNoPaths(by: DecidedBy.rules)
-      : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
-};
+///
+/// [noteReplyEndpoint] is called once per trajectory, when its own admitted
+/// entry is read (`runAirlockService`'s own `onTrajectoryStarted`): [decide]
+/// is given only a trajectory id, reach and rules by
+/// [DecidesActionsAndWritesToTheLogbook]'s own interface, so the
+/// replyEndpoint a `ToOwnReplyEndpoint` grant needs is kept here, by
+/// trajectory, rather than threaded through a signature this package does
+/// not own.
+final class GrantsReaches {
+  final _replyEndpointOf = <TrajectoryId, AddressPrefix?>{};
+
+  /// [trajectory]'s own replyEndpoint, read from the admitted entry that
+  /// started it — where replies to the event that opened it go, or null
+  /// when it named none.
+  void noteReplyEndpoint(TrajectoryId trajectory, AddressPrefix? replyEndpoint) {
+    _replyEndpointOf[trajectory] = replyEndpoint;
+  }
+
+  Decision decide(
+    TrajectoryId trajectory,
+    Reach reach,
+    WhatMayLeaveThisMachine rules,
+  ) => switch (reach) {
+    Reads() || Writes() || Starts() => const Allow.withNoPaths(by: DecidedBy.rules),
+    MakesWebRequests(:final requests) => grantEachWebRequest(
+      rules,
+      requests,
+      replyEndpoint: _replyEndpointOf[trajectory],
+    ),
+    FetchesFromWeb(:final origin, :final path, :final signIn) =>
+      grantFetch(rules, origin, path, signIn),
+    CallsTheModel(:final signIn) => rules.allowsModelCall(signIn)
+        ? const Allow.withNoPaths(by: DecidedBy.rules)
+        : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
+  };
+}
 
 /// Every one of [requests] granted together, in order: a [MakesWebRequests]
 /// sends them all or none, so the first missing grant denies the whole
 /// reach, and the surviving grant collects one path prefix per request for
 /// [Allow.grantedPathPrefixes] — never a web request unbounded.
 ///
-/// `replyEndpoint` is not yet available here: it is written by the docking
-/// station on the admission that starts a trajectory, but exposed only by
-/// is_docking_station_api 0.2.0+, which this package does not yet depend
-/// on (tasks 62/67, still blocked). So a [ToOwnReplyEndpoint] grant never
-/// matches here yet — a real gap, not a guess, until that dependency lands
-/// and this reads the trajectory's own recorded endpoint.
+/// [replyEndpoint] is the trajectory's own, or null when it has none: it is
+/// what makes a [ToOwnReplyEndpoint] grant on some of [requests] matchable
+/// at all.
 Decision grantEachWebRequest(
   WhatMayLeaveThisMachine rules,
-  List<ProposedRequest> requests,
-) {
+  List<ProposedRequest> requests, {
+  required AddressPrefix? replyEndpoint,
+}) {
   final prefixes = <PathPrefix>[];
   for (final request in requests) {
     switch (rules.webRequestsGrantFor(
@@ -46,7 +68,7 @@ Decision grantEachWebRequest(
       request.signIn,
       leasedNow: const {},
       pooled: const {},
-      replyEndpoint: null,
+      replyEndpoint: replyEndpoint,
     )) {
       case null:
         return Deny(
