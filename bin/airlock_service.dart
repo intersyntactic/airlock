@@ -9,11 +9,8 @@
 ///
 /// Environment:
 ///   AIRLOCK_LOGBOOK_SOCKET      the writer service's Unix socket
-///                               (AIRLOCK_RECORD_SOCKET also accepted,
-///                               until infra's migration window closes)
 ///   AIRLOCK_LOGBOOK_READ_SOCKET the writer service's read/subscribe
-///                               socket (AIRLOCK_RECORD_READ_SOCKET also
-///                               accepted, same window)
+///                               socket
 ///   AIRLOCK_WEB_DRIVER_SOCKET   the web driver's Unix socket
 ///   AIRLOCK_MODEL_DRIVER_SOCKETS a JSON object's path, sign-in name ->
 ///     `{"socket": ..., "user": ...}` — that sign-in's model driver's Unix
@@ -63,11 +60,8 @@ import 'package:is_web_request_driver/service.dart'
     show WebRequestDriverSocket;
 
 Future<void> main() async {
-  final logbookSocket = Platform.environment['AIRLOCK_LOGBOOK_SOCKET'] ??
-      Platform.environment['AIRLOCK_RECORD_SOCKET'];
-  final logbookReadSocket =
-      Platform.environment['AIRLOCK_LOGBOOK_READ_SOCKET'] ??
-      Platform.environment['AIRLOCK_RECORD_READ_SOCKET'];
+  final logbookSocket = Platform.environment['AIRLOCK_LOGBOOK_SOCKET'];
+  final logbookReadSocket = Platform.environment['AIRLOCK_LOGBOOK_READ_SOCKET'];
   final webDriverSocket = Platform.environment['AIRLOCK_WEB_DRIVER_SOCKET'];
   final modelDriverSockets =
       Platform.environment['AIRLOCK_MODEL_DRIVER_SOCKETS'];
