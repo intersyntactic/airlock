@@ -15,10 +15,10 @@
 ///   AIRLOCK_MODEL_DRIVER_SOCKETS a JSON object's path, sign-in name ->
 ///     `{"socket": ..., "user": ...}` — that sign-in's model driver's Unix
 ///     socket, and the process user it must be running as, checked the
-///     same way as AIRLOCK_WEB_DRIVER_USER (Nick's ruling, 22 Nov: a
-///     release must not check less than what is already live). The user
-///     lives in the same entry as the socket, never a second map beside
-///     it, so a sign-in can't have one without the other.
+///     same way as AIRLOCK_WEB_DRIVER_USER: a release must not check less
+///     than what is already live. The user lives in the same entry as the
+///     socket, never a second map beside it, so a sign-in can't have one
+///     without the other.
 ///   AIRLOCK_TEAMS_SIGN_IN       which sign-in posts a Teams reply or the
 ///                               trajectory-opened card (operational, not
 ///                               a build: infra's call which name CAM's
@@ -27,8 +27,8 @@
 ///                               the logbook enforces that a trajectory's
 ///                               chain takes entries only from its own loop
 ///                               user; unset or anything else means no
-///                               `proposed` entry is acted on (task 20,
-///                               Nick's call — flag only, no version check).
+///                               `proposed` entry is acted on — flag only,
+///                               no version check.
 ///   AIRLOCK_WEB_DRIVER_USER     the web driver's own process's user, by
 ///                               name or numeric uid, checked against the
 ///                               kernel's own report of who connects
@@ -56,8 +56,6 @@ import 'package:is_airlock/is_airlock.dart';
 import 'package:is_logbook_client/is_logbook_client.dart' show LogbookReader;
 import 'package:is_teams_module/is_teams_module.dart'
     show TeamsRequestsAnsweringEvents;
-import 'package:is_web_request_driver/service.dart'
-    show WebRequestDriverSocket;
 
 Future<void> main() async {
   final logbookSocket = Platform.environment['AIRLOCK_LOGBOOK_SOCKET'];

@@ -258,14 +258,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.1.0"
-  is_web_request_driver:
-    dependency: "direct main"
-    description:
-      name: is_web_request_driver
-      sha256: "66c2c6c31997618d8a9dc465c3cc979ba492a216c1ebc4e7c4746e3a2718ab5d"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.6.0"
   lints:
     dependency: "direct dev"
     description:
