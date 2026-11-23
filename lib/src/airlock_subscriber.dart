@@ -39,6 +39,7 @@ final _admittedKind = Kind.parse('event-admitted-to-mission')!;
 final _assignedKind = Kind.parse('users-assigned-to-trajectory')!;
 final _proposedKind = Kind.parse(ActionProposedByAgentLoop.kind)!;
 final _resultKind = Kind.parse(outcomeOfProposedActionKind)!;
+final _trajectoryClosedKind = Kind.trajectoryClosed;
 
 /// Under is_logbook 0.2.0, [Entry.id] (chain-walking's own space, via
 /// [Entry.previous]) is the [ObjectId] of the entry's bytes — the same
@@ -85,6 +86,23 @@ _Assigned? _decodeAssigned(Uint8List body) {
   return null;
 }
 
+/// `trajectory-closed`'s `trajectory` field, the only one [runAirlockService]
+/// reads: `is_docking_station_api`'s two cases (closed because a person
+/// asked, closed by an operator) otherwise differ in shape, so nothing here
+/// assumes a fixed field count the way [_decodeAssigned] can.
+TrajectoryId? _decodeTrajectoryClosed(Uint8List body) {
+  final Object? json;
+  try {
+    json = jsonDecode(utf8.decode(body));
+  } on FormatException {
+    return null;
+  }
+  return switch (json) {
+    {'trajectory': final String trajectory} => TrajectoryId.parse(trajectory),
+    _ => null,
+  };
+}
+
 /// One `proposed` entry, held from the backlog until it is known whether
 /// [runAirlockService] already answered it in an earlier run.
 final class _Buffered {
@@ -108,7 +126,17 @@ final class _Buffered {
 ///
 /// A trajectory is built once it has both its rules (from
 /// `event-admitted-to-mission`) and its suit (from
-/// `users-assigned-to-trajectory`); the two can arrive in either order.
+/// `users-assigned-to-trajectory`); the two can arrive in either order. A
+/// proposal considered before both have arrived is held, not refused (task
+/// 55, Case A): [consider] puts it under its trajectory id until either the
+/// trajectory builds (decided normally, just late) or its `trajectory-closed`
+/// entry arrives (refused, since nothing will ever decide it now) — see
+/// `awaitingTrajectory` below. An admitted entry that fails to parse at all
+/// is the one case decided immediately: its trajectory can never get real
+/// rules, so anything held for it is refused as soon as that's known, not
+/// left to wait on a `trajectory-closed` entry that may be a long time
+/// coming, or none at all.
+///
 /// [drivers] is the same set for every trajectory — tonight, the web
 /// driver and the model driver (`AsksTheModel`); no file or program driver
 /// yet (scope trimmed for the demo).
@@ -150,6 +178,24 @@ Future<void> runAirlockService({
   final buffered = <_Buffered>[];
   var caughtUp = false;
 
+  // Case A (task 55): a proposal whose trajectory has no rules or suit
+  // *yet* is not the same as one that never will. Held here instead of
+  // answered Refused outright, it waits for whichever comes first: the
+  // trajectory's own admitted/assigned entries (released below, once
+  // build() succeeds), or its trajectory-closed entry (refused below,
+  // since nothing will ever decide it now). No timeout: a cap short enough
+  // to matter would still have lost 20 Nov's DM, which answered 7 minutes
+  // late; the loop waiting on an answer already just blocks, so a late
+  // answer costs lateness, not silence.
+  final awaitingTrajectory = <TrajectoryId, List<_Buffered>>{};
+
+  // A trajectory [refuseAwaiting] has already answered for, by why: known
+  // dead *before* some later proposal for it is ever considered (an
+  // unreadable admission, or a trajectory-closed entry, can both arrive
+  // ahead of the proposal they doom), so [consider] checks this first
+  // rather than only draining whoever happened to be waiting already.
+  final deadTrajectory = <TrajectoryId, String>{};
+
   Trajectory<WhatMayLeaveThisMachine, PlaceInTrajectory>? build(TrajectoryId id) {
     final existing = trajectories[id];
     if (existing != null) return existing;
@@ -176,14 +222,18 @@ Future<void> runAirlockService({
   }
 
   Future<void> consider(_Buffered entry) async {
+    final dead = deadTrajectory[entry.trajectory];
+    if (dead != null) {
+      await writeRejection(entry.id, dead);
+      return;
+    }
     final trajectory = build(entry.trajectory);
     if (trajectory == null) {
-      const why = 'no rules or suit for this trajectory';
       say(
         '${entry.id.hex}: proposed on ${entry.trajectory.hex}, which has '
-        'no rules or suit',
+        'no rules or suit yet — held until it does or the trajectory closes',
       );
-      await writeRejection(entry.id, why);
+      awaitingTrajectory.putIfAbsent(entry.trajectory, () => []).add(entry);
       return;
     }
     switch (ActionProposedByAgentLoop.read(utf8.decode(entry.body))) {
@@ -192,6 +242,34 @@ Future<void> runAirlockService({
       case Rejected(:final why):
         say('${entry.id.hex}: proposal unreadable: $why');
         await writeRejection(entry.id, why);
+    }
+  }
+
+  /// [id] just became buildable (or, for the unreadable-admission case
+  /// below, is now known never to be): reconsider every proposal
+  /// [consider] held for it.
+  Future<void> releaseAwaiting(TrajectoryId id) async {
+    final waiting = awaitingTrajectory.remove(id);
+    if (waiting == null) return;
+    for (final entry in waiting) {
+      if (answered.contains(entry.id)) {
+        say('${entry.id.hex}: already answered, skipping');
+      } else {
+        await consider(entry);
+      }
+    }
+  }
+
+  /// [id] will never get rules or suit now: refuse everything [consider]
+  /// already held for it, and mark it so a proposal considered for the
+  /// first time after this point is refused immediately rather than held.
+  Future<void> refuseAwaiting(TrajectoryId id, String why) async {
+    deadTrajectory[id] = why;
+    final waiting = awaitingTrajectory.remove(id);
+    if (waiting == null) return;
+    for (final entry in waiting) {
+      say('${entry.id.hex}: $why, refusing');
+      await writeRejection(entry.id, why);
     }
   }
 
@@ -235,18 +313,24 @@ Future<void> runAirlockService({
           ):
             rulesOf[trajectoryId] = rules;
             onTrajectoryStarted?.call(trajectoryId, replyEndpoint);
-            build(trajectoryId);
+            if (build(trajectoryId) != null) await releaseAwaiting(trajectoryId);
           case EntryStartsNoTrajectory<WhatMayLeaveThisMachine>():
             break;
           case UnreadableTrajectoryEntry<WhatMayLeaveThisMachine>(:final why):
             // is_docking_station_api's own doc on UnreadableTrajectoryEntry says
-            // a rules-enforcing reader "must stop" here; safe to skip
-            // instead specifically because build() already returns null for
-            // a trajectory with no rules, and consider()'s own no-rules
-            // branch already fail-closed-rejects every proposal on one.
+            // a rules-enforcing reader "must stop" here; safe to skip instead
+            // specifically because this trajectory can never get real rules
+            // now — TrajectoryId.of(recorded) is a pure hash, readable even
+            // though the JSON it names wasn't, so whatever consider() is
+            // holding for it is refused immediately rather than left waiting
+            // on rules that will never arrive.
             final line = '${id.hex}: admitted entry unreadable: $why';
             say(line);
             await writeLogbookEntry(line);
+            await refuseAwaiting(
+              TrajectoryId.of(recorded),
+              'admitted entry unreadable: $why',
+            );
         }
 
       case Entry(:final kind, :final id, :final body)
@@ -260,7 +344,28 @@ Future<void> runAirlockService({
         }
         suitOf[assigned.trajectory] = assigned.suit;
         entryIndex.root(id, assigned.trajectory);
-        build(assigned.trajectory);
+        if (build(assigned.trajectory) != null) {
+          await releaseAwaiting(assigned.trajectory);
+        }
+
+      case Entry(:final kind, :final id, :final body)
+          when kind == _trajectoryClosedKind:
+        // Only reached for a trajectory [awaitingTrajectory] is holding
+        // proposals for: one that already has rules and suit built its
+        // Trajectory already and takes trajectory-closed's effect (the
+        // logbook refusing further writes on its chains) with no help
+        // from this case.
+        final closed = _decodeTrajectoryClosed(body);
+        if (closed == null) {
+          final line = '${id.hex}: not a trajectory-closed entry';
+          say(line);
+          await writeLogbookEntry(line);
+          break;
+        }
+        await refuseAwaiting(
+          closed,
+          'trajectory ${closed.hex} closed before it had rules or suit',
+        );
 
       case Entry(:final kind, :final body) when kind == _resultKind:
         final read = readOutcomeOfProposedAction(utf8.decode(body));
