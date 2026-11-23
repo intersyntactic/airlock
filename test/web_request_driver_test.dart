@@ -6,6 +6,10 @@ import 'package:is_airlock/is_airlock.dart';
 import 'package:test/test.dart';
 
 final _origin = Origin.parse('https://api.example')!;
+final _wholeSite = PathPrefix.parse('/')!;
+
+GrantedRequest _granted(Origin origin, {WebPath path = WebPath.root}) =>
+    GrantedRequest.under(ProposedRequest(origin, path: path), _wholeSite);
 
 void main() {
   group('WebRequestDriverSocket, over a real Unix domain socket', () {
@@ -58,7 +62,7 @@ void main() {
       final result = await WebRequestDriverSocket(
         socket,
         checkDriver: (_) async => 'not the expected driver',
-      ).carryOutWebRequest(Request(_origin));
+      ).carryOutWebRequest(_granted(_origin));
 
       expect(result, isA<Refused>());
       expect((result as Refused).why, contains('not the expected driver'));
@@ -79,7 +83,7 @@ void main() {
               return null;
             },
           ).carryOutWebRequest(
-            Request(_origin, path: WebPath.parse('/v3/things')!),
+            _granted(_origin, path: WebPath.parse('/v3/things')!),
           );
 
       expect(checked, 1);
@@ -95,7 +99,7 @@ void main() {
         );
 
         final result = await WebRequestDriverSocket(socket)
-            .carryOutWebRequest(Request(_origin));
+            .carryOutWebRequest(_granted(_origin));
 
         expect(result, isA<Refused>());
         expect((result as Refused).why, contains('unreadable answer'));
@@ -106,7 +110,7 @@ void main() {
       final socket = File('${directory.path}/nothing.sock');
 
       final result = await WebRequestDriverSocket(socket)
-          .carryOutWebRequest(Request(_origin));
+          .carryOutWebRequest(_granted(_origin));
 
       expect(result, isA<Refused>());
     });

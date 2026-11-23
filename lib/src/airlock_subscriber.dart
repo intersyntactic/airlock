@@ -131,7 +131,7 @@ final class _Buffered {
 /// chain ownership is confirmed live (infra-5e's `AIRLOCK_PROPOSALS_ENABLED`).
 Future<void> runAirlockService({
   required Stream<Subscribed> Function() subscribe,
-  required DecidesAndRecordsActions<WhatMayLeaveThisMachine, PlaceInTrajectory>
+  required DecidesActionsAndWritesToTheLogbook<WhatMayLeaveThisMachine, PlaceInTrajectory>
   airlock,
   required Iterable<CarriesOutActions> drivers,
   required bool proposalsEnabled,

@@ -75,10 +75,13 @@ final _realUid = int.parse(
 final _rulesJson = {
   'whatMayLeaveThisMachine': {
     'modelSignInsCallsMayGoOutAs': <String>['nick-claude-team'],
-    'sitesTheWebDriverMayReach': <Object?>[],
+    'fetchesMayReach': <Object?>[],
+    'webRequestsMayReach': <Object?>[],
     'programsNetwork': 'noNetworkOfTheirOwn',
   },
   'startingModel': {'signIn': 'nick-claude-team', 'model': 'claude-opus-5-5'},
+  'programsItMayRun': <String>[],
+  'programsItNeeds': <String>[],
 };
 
 /// Writes docking_station's admitted entry and loop_launcher's assigned
@@ -223,10 +226,9 @@ void main() {
       final entryIndex = EntryIndex();
       final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
-        decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
+        decide: (trajectory, reach, rules) =>
+            const Allow.withNoPaths(by: DecidedBy.rules),
         entryOn: entryIndex.entryOn,
-        rawEntry: entryIndex.raw,
-        registryByScheme: const {},
       );
 
       unawaited(
@@ -264,9 +266,16 @@ void main() {
         rules: {
           'whatMayLeaveThisMachine': {
             'modelSignInsCallsMayGoOutAs': ['nick-claude-team'],
-            'sitesTheWebDriverMayReach': [
+            'fetchesMayReach': <Object?>[],
+            'webRequestsMayReach': [
               {
-                'site': 'https://smba.trafficmanager.net',
+                'to': {
+                  'kind': 'addressesUnder',
+                  'prefix': {
+                    'origin': 'https://smba.trafficmanager.net',
+                    'pathPrefix': '/',
+                  },
+                },
                 'goesAs': {'kind': 'signIn', 'signIn': 'cam-teams'},
               },
             ],
@@ -276,16 +285,17 @@ void main() {
             'signIn': 'nick-claude-team',
             'model': 'claude-opus-5-5',
           },
+          'programsItMayRun': <String>[],
+          'programsItNeeds': <String>[],
         },
       );
 
       final entryIndex = EntryIndex();
       final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
-        decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
+        decide: (trajectory, reach, rules) =>
+            const Allow.withNoPaths(by: DecidedBy.rules),
         entryOn: entryIndex.entryOn,
-        rawEntry: entryIndex.raw,
-        registryByScheme: const {},
       );
 
       unawaited(
@@ -329,10 +339,9 @@ void main() {
       final entryIndex = EntryIndex();
       final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
-        decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
+        decide: (trajectory, reach, rules) =>
+            const Allow.withNoPaths(by: DecidedBy.rules),
         entryOn: entryIndex.entryOn,
-        rawEntry: entryIndex.raw,
-        registryByScheme: const {},
       );
 
       unawaited(
@@ -411,10 +420,9 @@ void main() {
       final entryIndex = EntryIndex();
       final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
-        decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
+        decide: (trajectory, reach, rules) =>
+            const Allow.withNoPaths(by: DecidedBy.rules),
         entryOn: entryIndex.entryOn,
-        rawEntry: entryIndex.raw,
-        registryByScheme: const {},
       );
 
       unawaited(
@@ -470,10 +478,9 @@ void main() {
       final entryIndex = EntryIndex();
       final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
-        decide: (trajectory, reach, rules) => const Allow(by: DecidedBy.rules),
+        decide: (trajectory, reach, rules) =>
+            const Allow.withNoPaths(by: DecidedBy.rules),
         entryOn: entryIndex.entryOn,
-        rawEntry: entryIndex.raw,
-        registryByScheme: const {},
       );
 
       // The one fake, malformed entry first, then the real subscription —
