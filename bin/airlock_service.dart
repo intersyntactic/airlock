@@ -112,9 +112,7 @@ Future<void> main() async {
       File(modelDriverSockets).readAsStringSync(),
     );
   } on FormatException catch (e) {
-    stderr.writeln(
-      'airlock service: AIRLOCK_MODEL_DRIVER_SOCKETS: ${e.message}',
-    );
+    stderr.writeln('airlock service: AIRLOCK_MODEL_DRIVER_SOCKETS: ${e.message}');
     exitCode = 64;
     return;
   }
@@ -134,8 +132,8 @@ Future<void> main() async {
   );
 
   final proposalsEnabled = switch (
-  // wire-ok: an environment variable, a boundary string
-  Platform.environment['AIRLOCK_PROPOSALS_ENABLED']?.toLowerCase()) {
+      // wire-ok: an environment variable, a boundary string
+      Platform.environment['AIRLOCK_PROPOSALS_ENABLED']?.toLowerCase()) {
     '1' || 'true' => true,
     _ => false,
   };
@@ -186,10 +184,9 @@ Decision _decide(
   Reads() || Writes() || Starts() => const Allow(by: DecidedBy.rules),
   AnswersEvent(:final requests) => _grantEach(rules, requests),
   FetchesFromWeb(:final origin, :final signIn) => _grant(rules, origin, signIn),
-  CallsTheModel(:final signIn) =>
-    rules.allowsModelCall(signIn)
-        ? const Allow(by: DecidedBy.rules)
-        : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
+  CallsTheModel(:final signIn) => rules.allowsModelCall(signIn)
+      ? const Allow(by: DecidedBy.rules)
+      : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
 };
 
 /// Every one of [requests] granted together: an [AnswersEvent] sends them
