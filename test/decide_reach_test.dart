@@ -58,6 +58,32 @@ void main() {
       },
     );
 
+    test(
+      'grants each request its own rule\'s prefix, in order — not every '
+      "request the first request's prefix",
+      () {
+        final rules = _rules(
+          webRequestsMayReach: [
+            _grantRequestsTo(_site, '/v1/things/'),
+            _grantRequestsTo(_site, '/v2/other/'),
+          ],
+        );
+        final decision = decideReach(
+          _trajectory,
+          MakesWebRequests([
+            _requestTo(_site, '/v1/things/abc'),
+            _requestTo(_site, '/v2/other/xyz'),
+          ]),
+          rules,
+        );
+        expect(decision, isA<Allow>());
+        expect((decision as Allow).grantedPathPrefixes, [
+          PathPrefix.parse('/v1/things/'),
+          PathPrefix.parse('/v2/other/'),
+        ]);
+      },
+    );
+
     test('denies the whole reach when any one request is ungranted', () {
       final rules = _rules(
         webRequestsMayReach: [_grantRequestsTo(_site, '/v1/things/')],
@@ -123,6 +149,57 @@ void main() {
       );
       expect(decision, isA<Deny>());
     });
+
+    test(
+      'a FromPathsMatching grant passes on the matched read\'s own '
+      'prefix, not the whole site (airlock_api#45)',
+      () {
+        final pattern = PathPattern.parse(
+          '/v1.0/drives/D/items/F:/{name}:/content',
+        )!;
+        final rules = _rules(
+          fetchesMayReach: [
+            GrantToFetch(
+              FromPathsMatching.of(_site, [pattern])!,
+              GoesAsSignIn(_signIn),
+            ),
+          ],
+        );
+
+        final matched = decideReach(
+          _trajectory,
+          FetchesFromWeb(
+            WebFetch(
+              _site,
+              path: WebPath.parse(
+                '/v1.0/drives/D/items/F:/a.docx:/content',
+              )!,
+              keep: BodyToKeep.none,
+              signIn: _signIn,
+            ),
+          ),
+          rules,
+        );
+        expect(matched, isA<Allow>());
+        expect((matched as Allow).grantedPathPrefixes, [
+          PathPrefix.parse('/v1.0/drives/D/items/F:/a.docx:/'),
+        ]);
+
+        final unmatched = decideReach(
+          _trajectory,
+          FetchesFromWeb(
+            WebFetch(
+              _site,
+              path: WebPath.parse('/v1.0/drives/D/items/OTHER/content')!,
+              keep: BodyToKeep.none,
+              signIn: _signIn,
+            ),
+          ),
+          rules,
+        );
+        expect(unmatched, isA<Deny>());
+      },
+    );
   });
 
   group('decideReach: other reaches', () {
