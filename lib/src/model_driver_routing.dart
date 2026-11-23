@@ -1,10 +1,71 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:checked_json/checked_json.dart';
-import 'package:is_claude_code_driver/service.dart' show ClaudeCodeDriverSocket;
 import 'package:is_effects/is_effects.dart';
 
 import 'driver_release.dart';
+
+/// [AsksTheModel] in another process, over the wire every model driver
+/// shares (`is_effects`' own `encodeModelCall`/`decodeProgramMessage`):
+/// connects to [socket], runs [checkDriver] on the open connection before
+/// writing anything, sends the call, then reports each streamed message
+/// and returns the final one's outcome. Holds no secret.
+///
+/// Named for the wire, not for any one driver's own package: airlock
+/// dials whichever process speaks this protocol, and depending on that
+/// process's own code (Nick, 23 Nov: "it shouldn't") would mean a change
+/// to one driver's internals could break every other sign-in's airlock
+/// never actually calls through it.
+final class ModelDriverSocket implements AsksTheModel {
+  /// [checkDriver] runs on every connection before the call is sent, so a
+  /// driver it refuses never sees the call.
+  ModelDriverSocket(this.socket, {this.checkDriver});
+
+  final File socket;
+  final CheckDriver? checkDriver;
+
+  @override
+  Future<Outcome<ModelReply>> askTheModel(
+    ModelSignInName signIn,
+    ModelName model,
+    String systemPrompt,
+    String request, {
+    required Report report,
+  }) async {
+    try {
+      final s = await Socket.connect(
+        InternetAddress(socket.path, type: InternetAddressType.unix),
+        0,
+      );
+      if (await checkDriver?.call(s) case final why?) {
+        s.destroy();
+        return Refused('model driver: $why');
+      }
+      s.add(
+        utf8.encode(
+          jsonEncode(encodeModelCall(signIn, model, systemPrompt, request)),
+        ),
+      );
+      await s.close();
+      await for (final line
+          in utf8.decoder.bind(s).transform(const LineSplitter())) {
+        switch (decodeProgramMessage(jsonDecode(line), decodeModelReply)) {
+          case Reported(:final progress):
+            report(progress);
+          case Finished(:final outcome):
+            return outcome;
+        }
+      }
+      return const Refused('model driver: refused caller');
+    } on SocketException catch (e) {
+      return Refused('model driver: ${e.message}');
+    } on FormatException catch (e) {
+      return Refused('model driver: unreadable answer: ${e.message}');
+    }
+  }
+}
 
 /// Calls the model through whichever of [driversBySignIn] a call's sign-in
 /// names, refusing a sign-in the map holds none for.
@@ -16,11 +77,10 @@ import 'driver_release.dart';
 final class RoutesModelCallsBySignIn implements AsksTheModel {
   const RoutesModelCallsBySignIn(this.driversBySignIn);
 
-  /// [sockets]'s content read as sign-in -> driver, one
-  /// [ClaudeCodeDriverSocket] per entry: every model driver speaks the same
-  /// wire protocol (is_claude_code_driver's own service.dart), so the one
-  /// client type dials whichever socket its sign-in is routed to, checked
-  /// against that entry's own expected user first — exactly as
+  /// [sockets]'s content read as sign-in -> driver, one [ModelDriverSocket]
+  /// per entry: every model driver speaks the same wire protocol, so the
+  /// one client type dials whichever socket its sign-in is routed to,
+  /// checked against that entry's own expected user first — exactly as
   /// [AIRLOCK_WEB_DRIVER_USER] checks the web driver (Nick's ruling, 22
   /// Nov: a release must not check less than what is already live).
   ///
@@ -31,7 +91,7 @@ final class RoutesModelCallsBySignIn implements AsksTheModel {
   factory RoutesModelCallsBySignIn.fromSocketsFile(String sockets) =>
       RoutesModelCallsBySignIn({
         for (final MapEntry(:key, :value) in modelDriversBySignIn(sockets).entries)
-          key: ClaudeCodeDriverSocket(
+          key: ModelDriverSocket(
             File(value.socket),
             checkDriver: checkDriverRelease(
               expectedUser: userNamedBy(value.user) ??
