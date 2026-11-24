@@ -10,8 +10,8 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
-  is_airlock_api: ^0.17.0
-  is_effects: ^0.14.4
+  is_airlock_api: ^0.18.0
+  is_effects: ^0.15.0
   is_flight_rules: ^0.6.0
   checked_json: ^0.2.1
   is_logbook_client: ^0.3.0

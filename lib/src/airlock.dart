@@ -140,6 +140,6 @@ String _proposedRequest(ProposedRequest request) =>
     '${request.origin}${request.path} as ${request.signIn ?? 'no sign-in'}';
 
 String _decision(Decision decision) => switch (decision) {
-  Allow(:final by) => 'allow (by ${by.name})',
+  Allow(:final by) => 'allow (by ${by?.name ?? 'no rule'})',
   Deny(:final why, :final by) => 'deny (by ${by.name}): $why',
 };

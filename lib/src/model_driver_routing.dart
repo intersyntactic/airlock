@@ -26,6 +26,12 @@ final class ModelDriverSocket implements AsksTheModel {
   final File socket;
   final CheckDriver? checkDriver;
 
+  /// [NothingRan] only when the driver could not be reached, or refused the
+  /// connection outright, so nothing was sent. Once the call is sent, a
+  /// stream that ends without its [Finished] is [StoppedPartway] with
+  /// `done: null`: the model may have been called, even having streamed
+  /// nothing, and only the driver knows — never [NothingRan], which would
+  /// wrongly promise it is safe to retry.
   @override
   Future<Outcome<ModelReply>> askTheModel(
     ModelSignInName signIn,
@@ -34,15 +40,21 @@ final class ModelDriverSocket implements AsksTheModel {
     String request, {
     required Report report,
   }) async {
+    final Socket s;
     try {
-      final s = await Socket.connect(
+      s = await Socket.connect(
         InternetAddress(socket.path, type: InternetAddressType.unix),
         0,
       );
       if (await checkDriver?.call(s) case final why?) {
         s.destroy();
-        return Refused('model driver: $why');
+        return NothingRan('model driver: $why');
       }
+    } on SocketException catch (e) {
+      return NothingRan('model driver: ${e.message}');
+    }
+    String? lastLine;
+    try {
       s.add(
         utf8.encode(
           jsonEncode(encodeModelCall(signIn, model, systemPrompt, request)),
@@ -51,6 +63,7 @@ final class ModelDriverSocket implements AsksTheModel {
       await s.close();
       await for (final line
           in utf8.decoder.bind(s).transform(const LineSplitter())) {
+        lastLine = line;
         switch (decodeProgramMessage(jsonDecode(line), decodeModelReply)) {
           case Reported(:final progress):
             report(progress);
@@ -58,11 +71,17 @@ final class ModelDriverSocket implements AsksTheModel {
             return outcome;
         }
       }
-      return const Refused('model driver: refused caller');
+      return const StoppedPartway(
+        why: 'model driver: the connection closed before it finished',
+        done: null,
+      );
     } on SocketException catch (e) {
-      return Refused('model driver: ${e.message}');
+      return StoppedPartway(why: 'model driver: ${e.message}', done: null);
     } on FormatException catch (e) {
-      return Refused('model driver: unreadable answer: ${e.message}');
+      return StoppedPartway(
+        why: 'model driver: unreadable answer: ${e.message}: $lastLine',
+        done: null,
+      );
     }
   }
 }
@@ -113,7 +132,7 @@ final class RoutesModelCallsBySignIn implements AsksTheModel {
     required Report report,
   }) async {
     final driver = driversBySignIn[signIn];
-    if (driver == null) return Refused('no model driver for sign-in $signIn');
+    if (driver == null) return NothingRan('no model driver for sign-in $signIn');
     return driver.askTheModel(signIn, model, systemPrompt, request, report: report);
   }
 }

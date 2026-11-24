@@ -142,7 +142,7 @@ void main() {
     id: _id('conv-1'),
     drivers: [
       _FakeFileDriver(),
-      _FakeWebDriver(onSend ?? (request) => const Refused('no onSend given')),
+      _FakeWebDriver(onSend ?? (request) => const NothingRan('no onSend given')),
     ],
     airlock: a,
     rules: rules,

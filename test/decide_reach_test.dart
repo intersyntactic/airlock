@@ -288,21 +288,24 @@ void main() {
   });
 
   group('decideReach: other reaches', () {
-    test('Reads/Writes need no grant at all', () {
-      final rules = _rules();
-      expect(
-        decideReach(_trajectory, Reads(RelativePath.root), rules),
-        isA<Allow>(),
-      );
-      expect(
-        decideReach(
+    test(
+      'Reads/Writes need no grant at all, and are honest that no rule '
+      'governs them (task 78: Allow.by is null here, never DecidedBy.rules)',
+      () {
+        final rules = _rules();
+        final reads = decideReach(_trajectory, Reads(RelativePath.root), rules);
+        expect(reads, isA<Allow>());
+        expect((reads as Allow).by, isNull);
+
+        final writes = decideReach(
           _trajectory,
           Writes(FileText(RelativePath.root, '')),
           rules,
-        ),
-        isA<Allow>(),
-      );
-    });
+        );
+        expect(writes, isA<Allow>());
+        expect((writes as Allow).by, isNull);
+      },
+    );
 
     test(
       'Starts is granted for a program the rules list in programsItMayRun',
