@@ -197,10 +197,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_effects
-      sha256: "0b322e4efe7313479b09121b44c8d49dbf3f0794a9a46da41efcd8cefa937ab7"
+      sha256: "4579f4c020b4748db14f157f30c1009e0f5575a60114ee1f9e6075744cdf5e41"
       url: "https://pub.dev"
     source: hosted
-    version: "0.14.3"
+    version: "0.14.4"
   is_flight_rules:
     dependency: "direct main"
     description:
