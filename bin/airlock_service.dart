@@ -107,7 +107,7 @@ Future<void> main() async {
 
   final entryIndex = EntryIndex();
   final grants = GrantsReaches();
-  final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+  final airlock = Airlock<FlightRules, PlaceInTrajectory>(
     LogbookClient(logbookSocket),
     decide: grants.decide,
     entryOn: entryIndex.entryOn,

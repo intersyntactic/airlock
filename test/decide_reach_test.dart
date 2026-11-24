@@ -11,6 +11,11 @@ final _trajectory = TrajectoryId.of(Uint8List.fromList([1, 2, 3]));
 final _site = Origin.parse('https://api.example')!;
 final _otherSite = Origin.parse('https://other.example')!;
 final _signIn = SignIn.parse('cam-teams')!;
+final _startingSignIn = ModelSignInName.parse('starting-sign-in')!;
+final _startingModel = ModelAndSignIn(
+  signIn: _startingSignIn,
+  model: ModelName.parse('claude-opus-5-5')!,
+);
 
 /// [GrantsReaches.decide], for a one-off call that doesn't need its own
 /// instance: [trajectory]'s own replyEndpoint, when given, is recorded
@@ -19,7 +24,7 @@ final _signIn = SignIn.parse('cam-teams')!;
 Decision decideReach(
   TrajectoryId trajectory,
   Reach reach,
-  WhatMayLeaveThisMachine rules, {
+  FlightRules rules, {
   AddressPrefix? replyEndpoint,
 }) {
   final grants = GrantsReaches();
@@ -27,15 +32,22 @@ Decision decideReach(
   return grants.decide(trajectory, reach, rules);
 }
 
-WhatMayLeaveThisMachine _rules({
+FlightRules _rules({
   Iterable<GrantToFetch> fetchesMayReach = const [],
   Iterable<GrantToMakeWebRequests> webRequestsMayReach = const [],
-}) => WhatMayLeaveThisMachine(
-  modelSignInsCallsMayGoOutAs: const [],
-  fetchesMayReach: fetchesMayReach,
-  webRequestsMayReach: webRequestsMayReach,
-  programsNetwork: ProgramsNetwork.noNetworkOfTheirOwn,
-);
+  Iterable<ProgramName> programsItMayRun = const [],
+}) => FlightRules.of(
+  whatMayLeaveThisMachine: WhatMayLeaveThisMachine(
+    modelSignInsCallsMayGoOutAs: [_startingSignIn],
+    fetchesMayReach: fetchesMayReach,
+    webRequestsMayReach: webRequestsMayReach,
+    programsNetwork: ProgramsNetwork.noNetworkOfTheirOwn,
+  ),
+  startingModel: _startingModel,
+  programsItMayRun: programsItMayRun,
+  programsItNeeds: const [],
+  givenTools: const [],
+)!;
 
 GrantToMakeWebRequests _grantRequestsTo(Origin origin, String prefix) =>
     GrantToMakeWebRequests(
@@ -276,7 +288,7 @@ void main() {
   });
 
   group('decideReach: other reaches', () {
-    test('Reads/Writes/Starts need no grant at all', () {
+    test('Reads/Writes need no grant at all', () {
       final rules = _rules();
       expect(
         decideReach(_trajectory, Reads(RelativePath.root), rules),
@@ -290,23 +302,58 @@ void main() {
         ),
         isA<Allow>(),
       );
-      expect(
-        decideReach(
+    });
+
+    test(
+      'Starts is granted for a program the rules list in programsItMayRun',
+      () {
+        final rules = _rules(
+          programsItMayRun: [ProgramName.parse('teams-reply-drawing')!],
+        );
+        expect(
+          decideReach(
+            _trajectory,
+            Starts(ProgramName.parse('teams-reply-drawing')!, const Args([])),
+            rules,
+          ),
+          isA<Allow>(),
+        );
+      },
+    );
+
+    test(
+      'Starts is denied, naming the program, for an installed program not '
+      'in programsItMayRun',
+      () {
+        final rules = _rules(
+          programsItMayRun: [ProgramName.parse('teams-reply-drawing')!],
+        );
+        final decision = decideReach(
           _trajectory,
           Starts(ProgramName.parse('dart')!, const Args([])),
           rules,
-        ),
-        isA<Allow>(),
-      );
-    });
+        );
+        expect(decision, isA<Deny>());
+        expect((decision as Deny).why, contains('dart'));
+      },
+    );
 
     test('CallsTheModel is granted only for a sign-in the rules name', () {
-      final rules = WhatMayLeaveThisMachine(
-        modelSignInsCallsMayGoOutAs: [ModelSignInName.parse('cam-teams')!],
-        fetchesMayReach: const [],
-        webRequestsMayReach: const [],
-        programsNetwork: ProgramsNetwork.noNetworkOfTheirOwn,
-      );
+      final rules = FlightRules.of(
+        whatMayLeaveThisMachine: WhatMayLeaveThisMachine(
+          modelSignInsCallsMayGoOutAs: [ModelSignInName.parse('cam-teams')!],
+          fetchesMayReach: const [],
+          webRequestsMayReach: const [],
+          programsNetwork: ProgramsNetwork.noNetworkOfTheirOwn,
+        ),
+        startingModel: ModelAndSignIn(
+          signIn: ModelSignInName.parse('cam-teams')!,
+          model: ModelName.parse('claude-opus-5-5')!,
+        ),
+        programsItMayRun: const [],
+        programsItNeeds: const [],
+        givenTools: const [],
+      )!;
       expect(
         decideReach(
           _trajectory,

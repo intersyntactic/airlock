@@ -4,9 +4,11 @@ import 'package:is_flight_rules/is_flight_rules.dart';
 
 /// Every production grant the airlock service makes, under the rules given
 /// to [decide] and the replyEndpoint [noteReplyEndpoint] recorded for the
-/// trajectory deciding: files, writes and programs carry nothing off this
-/// machine by themselves, so none needs a rule here (`WhatMayLeaveThisMachine`'s
-/// own doc comment); only a web request or a model call does.
+/// trajectory deciding: files and writes carry nothing off this machine by
+/// themselves, so neither needs a rule here. A program is different — a
+/// suit on `sharesThisMachinesNetwork` reaches the internet, so which
+/// programs may start is itself the rule, checked against
+/// `FlightRules.allowsProgram`.
 ///
 /// Held in lib/, not bin/airlock_service.dart, so a test can reach it
 /// directly rather than only through the whole service.
@@ -31,17 +33,20 @@ final class GrantsReaches {
   Decision decide(
     TrajectoryId trajectory,
     Reach reach,
-    WhatMayLeaveThisMachine rules,
+    FlightRules rules,
   ) => switch (reach) {
-    Reads() || Writes() || Starts() => const Allow.withNoPaths(by: DecidedBy.rules),
+    Reads() || Writes() => const Allow.withNoPaths(by: DecidedBy.rules),
+    Starts(:final program) => rules.allowsProgram(program)
+        ? const Allow.withNoPaths(by: DecidedBy.rules)
+        : Deny('not granted: starts $program', by: DecidedBy.rules),
     MakesWebRequests(:final requests) => grantEachWebRequest(
-      rules,
+      rules.whatMayLeaveThisMachine,
       requests,
       replyEndpoint: _replyEndpointOf[trajectory],
     ),
     FetchesFromWeb(:final origin, :final path, :final signIn) =>
-      grantFetch(rules, origin, path, signIn),
-    CallsTheModel(:final signIn) => rules.allowsModelCall(signIn)
+      grantFetch(rules.whatMayLeaveThisMachine, origin, path, signIn),
+    CallsTheModel(:final signIn) => rules.whatMayLeaveThisMachine.allowsModelCall(signIn)
         ? const Allow.withNoPaths(by: DecidedBy.rules)
         : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
   };

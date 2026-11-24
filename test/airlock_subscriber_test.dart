@@ -225,7 +225,7 @@ void main() {
       final proposedId = await _propose(LogbookWriter(harness.socketPath));
 
       final entryIndex = EntryIndex();
-      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+      final airlock = Airlock<FlightRules, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) =>
             const Allow.withNoPaths(by: DecidedBy.rules),
@@ -293,7 +293,7 @@ void main() {
       );
 
       final entryIndex = EntryIndex();
-      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+      final airlock = Airlock<FlightRules, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) =>
             const Allow.withNoPaths(by: DecidedBy.rules),
@@ -339,7 +339,7 @@ void main() {
       final proposedId = await _propose(LogbookWriter(harness.socketPath));
 
       final entryIndex = EntryIndex();
-      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+      final airlock = Airlock<FlightRules, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) =>
             const Allow.withNoPaths(by: DecidedBy.rules),
@@ -420,7 +420,7 @@ void main() {
       final proposedId = EntryId.of(proposed.recorded);
 
       final entryIndex = EntryIndex();
-      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+      final airlock = Airlock<FlightRules, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) =>
             const Allow.withNoPaths(by: DecidedBy.rules),
@@ -478,7 +478,7 @@ void main() {
       );
 
       final entryIndex = EntryIndex();
-      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+      final airlock = Airlock<FlightRules, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) =>
             const Allow.withNoPaths(by: DecidedBy.rules),
@@ -545,7 +545,7 @@ void main() {
       final trajectoryId = TrajectoryId.of(admitted.recorded);
 
       final entryIndex = EntryIndex();
-      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+      final airlock = Airlock<FlightRules, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) =>
             const Allow.withNoPaths(by: DecidedBy.rules),
@@ -636,7 +636,7 @@ void main() {
       final proposedId = EntryId.of(proposed.recorded);
 
       final entryIndex = EntryIndex();
-      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+      final airlock = Airlock<FlightRules, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) =>
             const Allow.withNoPaths(by: DecidedBy.rules),
@@ -739,7 +739,7 @@ void main() {
       );
 
       final entryIndex = EntryIndex();
-      final airlock = Airlock<WhatMayLeaveThisMachine, PlaceInTrajectory>(
+      final airlock = Airlock<FlightRules, PlaceInTrajectory>(
         LogbookClient(harness.socketPath),
         decide: (trajectory, reach, rules) =>
             const Allow.withNoPaths(by: DecidedBy.rules),

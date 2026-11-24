@@ -159,7 +159,7 @@ final class _Buffered {
 /// chain ownership is confirmed live (infra-5e's `AIRLOCK_PROPOSALS_ENABLED`).
 Future<void> runAirlockService({
   required Stream<Subscribed> Function() subscribe,
-  required DecidesActionsAndWritesToTheLogbook<WhatMayLeaveThisMachine, PlaceInTrajectory>
+  required DecidesActionsAndWritesToTheLogbook<FlightRules, PlaceInTrajectory>
   airlock,
   required Iterable<CarriesOutActions> drivers,
   required bool proposalsEnabled,
@@ -170,10 +170,10 @@ Future<void> runAirlockService({
   void Function(TrajectoryId trajectory, AddressPrefix? replyEndpoint)?
   onTrajectoryStarted,
 }) async {
-  final rulesOf = <TrajectoryId, WhatMayLeaveThisMachine>{};
+  final rulesOf = <TrajectoryId, FlightRules>{};
   final suitOf = <TrajectoryId, Suit>{};
   final trajectories =
-      <TrajectoryId, Trajectory<WhatMayLeaveThisMachine, PlaceInTrajectory>>{};
+      <TrajectoryId, Trajectory<FlightRules, PlaceInTrajectory>>{};
   final answered = <EntryId>{};
   final buffered = <_Buffered>[];
   var caughtUp = false;
@@ -196,7 +196,7 @@ Future<void> runAirlockService({
   // rather than only draining whoever happened to be waiting already.
   final deadTrajectory = <TrajectoryId, String>{};
 
-  Trajectory<WhatMayLeaveThisMachine, PlaceInTrajectory>? build(TrajectoryId id) {
+  Trajectory<FlightRules, PlaceInTrajectory>? build(TrajectoryId id) {
     final existing = trajectories[id];
     if (existing != null) return existing;
     final rules = rulesOf[id];
@@ -211,11 +211,11 @@ Future<void> runAirlockService({
     );
   }
 
-  WhatMayLeaveThisMachine? parseRules(Object? json) {
+  FlightRules? parseRules(Object? json) {
     final object = JsonObject.parse(json);
     if (object == null) return null;
     try {
-      return FlightRules.fromJson(object).whatMayLeaveThisMachine;
+      return FlightRules.fromJson(object);
     } on FormatException {
       return null;
     }
@@ -302,11 +302,11 @@ Future<void> runAirlockService({
 
       case Entry(:final kind, :final id, recorded: final recorded)
           when kind == _admittedKind:
-        switch (readTrajectoryStart<WhatMayLeaveThisMachine>(
+        switch (readTrajectoryStart<FlightRules>(
           recorded,
           rules: parseRules,
         )) {
-          case EntryStartsTrajectory<WhatMayLeaveThisMachine>(
+          case EntryStartsTrajectory<FlightRules>(
             trajectory: final trajectoryId,
             rules: final rules,
             replyEndpoint: final replyEndpoint,
@@ -314,9 +314,9 @@ Future<void> runAirlockService({
             rulesOf[trajectoryId] = rules;
             onTrajectoryStarted?.call(trajectoryId, replyEndpoint);
             if (build(trajectoryId) != null) await releaseAwaiting(trajectoryId);
-          case EntryStartsNoTrajectory<WhatMayLeaveThisMachine>():
+          case EntryStartsNoTrajectory<FlightRules>():
             break;
-          case UnreadableTrajectoryEntry<WhatMayLeaveThisMachine>(:final why):
+          case UnreadableTrajectoryEntry<FlightRules>(:final why):
             // is_docking_station_api's own doc on UnreadableTrajectoryEntry says
             // a rules-enforcing reader "must stop" here; safe to skip instead
             // specifically because this trajectory can never get real rules
