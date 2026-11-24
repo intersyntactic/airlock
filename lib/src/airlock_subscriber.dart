@@ -26,6 +26,8 @@ import 'package:is_docking_station_api/path_start.dart'
     show
         EntryStartsTrajectory,
         EntryStartsNoTrajectory,
+        RepliesInSlackConversation,
+        RepliesUnderWebAddress,
         UnreadableTrajectoryEntry,
         readTrajectoryStart;
 import 'package:is_effects/is_effects.dart';
@@ -312,7 +314,17 @@ Future<void> runAirlockService({
             replyEndpoint: final replyEndpoint,
           ):
             rulesOf[trajectoryId] = rules;
-            onTrajectoryStarted?.call(trajectoryId, replyEndpoint);
+            // ToOwnReplyEndpoint only ever matches a web address (task 75's
+            // Slack grant is still undesigned, and no live trajectory
+            // replies through Slack yet), so a Slack endpoint grants
+            // nothing here rather than being misread as one.
+            onTrajectoryStarted?.call(
+              trajectoryId,
+              switch (replyEndpoint) {
+                RepliesUnderWebAddress(:final prefix) => prefix,
+                RepliesInSlackConversation() || null => null,
+              },
+            );
             if (build(trajectoryId) != null) await releaseAwaiting(trajectoryId);
           case EntryStartsNoTrajectory<FlightRules>():
             break;

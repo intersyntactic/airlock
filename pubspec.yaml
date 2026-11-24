@@ -15,7 +15,7 @@ dependencies:
   is_flight_rules: ^0.6.0
   checked_json: ^0.2.1
   is_logbook_client: ^0.3.0
-  is_docking_station_api: ^0.4.0
+  is_docking_station_api: ^0.5.0
   is_unix_socket_user_check: ^0.2.1
 
 dev_dependencies:
