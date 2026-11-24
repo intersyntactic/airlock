@@ -10,6 +10,7 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
+  async: ^2.13.1
   is_airlock_api: ^0.18.1
   is_effects: ^0.15.0
   is_flight_rules: ^0.7.0

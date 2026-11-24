@@ -18,9 +18,12 @@
 /// the backlog first.
 library;
 
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:async/async.dart' show StreamGroup;
 import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_conversation_reply_vocabulary/is_conversation_reply_vocabulary.dart'
     show RepliesInSlackConversation, RepliesUnderWebAddress;
@@ -42,6 +45,33 @@ final _assignedKind = Kind.parse('users-assigned-to-trajectory')!;
 final _proposedKind = Kind.parse(ActionProposedByAgentLoop.kind)!;
 final _resultKind = Kind.parse(outcomeOfProposedActionKind)!;
 final _trajectoryClosedKind = Kind.trajectoryClosed;
+
+/// Merged into [runAirlockService]'s subscription to mean "stop here":
+/// its own type, never mistaken for a real [Subscribed] item.
+final class _Drain {
+  const _Drain();
+}
+
+/// [ProcessSignal.sigterm.watch] itself, watched lazily on [listen] rather
+/// than eagerly here, so [runAirlockService]'s default for [drainOn] can
+/// be this type's own compile-time constant instead of a stream only
+/// built when something actually subscribes to it.
+final class _WatchesProcessSigterm extends Stream<void> {
+  const _WatchesProcessSigterm();
+
+  @override
+  StreamSubscription<void> listen(
+    void Function(void event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => ProcessSignal.sigterm.watch().map((_) {}).listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
+}
 
 /// Under is_logbook 0.2.0, [Entry.id] (chain-walking's own space, via
 /// [Entry.previous]) is the [ObjectId] of the entry's bytes — the same
@@ -171,6 +201,7 @@ Future<void> runAirlockService({
   required void Function(String line) say,
   void Function(TrajectoryId trajectory, AddressPrefix? replyEndpoint)?
   onTrajectoryStarted,
+  Stream<void> drainOn = const _WatchesProcessSigterm(),
 }) async {
   final rulesOf = <TrajectoryId, FlightRules>{};
   final suitOf = <TrajectoryId, Suit>{};
@@ -275,7 +306,24 @@ Future<void> runAirlockService({
     }
   }
 
-  await for (final item in subscribe()) {
+  // Merged with [drainOn] rather than watched separately (task 39, Nick's
+  // fix 24 Nov): this loop only ever awaits one thing at a time (every
+  // branch below ends in an await before the next item is pulled), so a
+  // signal here — arriving in the merged order, same as any other item —
+  // is enough. [_Drain] breaks the loop once whatever was already
+  // in-flight finishes; nothing after it is ever pulled or started.
+  final merged = StreamGroup.merge<Object>([
+    subscribe(),
+    drainOn.map((_) => const _Drain()),
+  ]);
+
+  await for (final raw in merged) {
+    if (raw is _Drain) {
+      say('airlock service: draining (stop signal received)');
+      break;
+    }
+    if (raw is! Subscribed) continue;
+    final item = raw;
     // Indexed by id before any kind-specific handling, so every entry —
     // not just the kinds this service has a case for — is findable by
     // EntryId for recordedOn. Its trajectory is the service's own stamp
