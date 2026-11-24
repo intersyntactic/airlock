@@ -82,6 +82,7 @@ final _rulesJson = {
   'startingModel': {'signIn': 'nick-claude-team', 'model': 'claude-opus-5-5'},
   'programsItMayRun': <String>[],
   'programsItNeeds': <String>[],
+  'givenTools': <Object?>[],
 };
 
 /// Writes docking_station's admitted entry and loop_launcher's assigned
@@ -287,6 +288,7 @@ void main() {
           },
           'programsItMayRun': <String>[],
           'programsItNeeds': <String>[],
+          'givenTools': <Object?>[],
         },
       );
 
