@@ -64,8 +64,8 @@ void main() {
         checkDriver: (_) async => 'not the expected driver',
       ).carryOutWebRequest(_granted(_origin));
 
-      expect(result, isA<Refused>());
-      expect((result as Refused).why, contains('not the expected driver'));
+      expect(result, isA<NothingRan>());
+      expect((result as NothingRan).why, contains('not the expected driver'));
       expect(sawRequest, isFalse);
     });
 
@@ -92,27 +92,48 @@ void main() {
     });
 
     test(
-      'refuses an answer from before is_effects\' own wire format',
+      'an answer from before is_effects\' own wire format is undecodable, '
+      'and the request may already have gone out, so it throws '
+      'OutcomeUnknown rather than returning Refused',
       () async {
         final socket = await serverAnswering(
           '{"ran":{"status":201,"created":"1:abc"}}\n',
         );
 
-        final result = await WebRequestDriverSocket(socket)
-            .carryOutWebRequest(_granted(_origin));
-
-        expect(result, isA<Refused>());
-        expect((result as Refused).why, contains('unreadable answer'));
+        await expectLater(
+          WebRequestDriverSocket(socket).carryOutWebRequest(_granted(_origin)),
+          throwsA(
+            isA<OutcomeUnknown>()
+                .having((e) => e.why, 'why', contains('undecodable answer'))
+                .having((e) => e.answer, 'answer', contains('1:abc')),
+          ),
+        );
       },
     );
 
-    test('refuses when no service is listening', () async {
+    test(
+      'a driver that closes the socket without answering (web-request-driver-e1\'s '
+      'own-process refusal, e.g. the wrong user) throws OutcomeUnknown, since '
+      'the request was already sent',
+      () async {
+        final socket = await serverAnswering('');
+
+        await expectLater(
+          WebRequestDriverSocket(socket).carryOutWebRequest(_granted(_origin)),
+          throwsA(
+            isA<OutcomeUnknown>().having((e) => e.why, 'why', contains('no answer')),
+          ),
+        );
+      },
+    );
+
+    test('NothingRan when no service is listening', () async {
       final socket = File('${directory.path}/nothing.sock');
 
       final result = await WebRequestDriverSocket(socket)
           .carryOutWebRequest(_granted(_origin));
 
-      expect(result, isA<Refused>());
+      expect(result, isA<NothingRan>());
     });
   });
 }

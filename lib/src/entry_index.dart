@@ -19,7 +19,7 @@ import 'package:is_airlock_api/is_airlock_api.dart'
         TrajectoryId,
         readOutcomeOfProposedAction,
         outcomeOfProposedActionKind;
-import 'package:is_effects/is_effects.dart' show Outcome, Ran, Refused;
+import 'package:is_effects/is_effects.dart' show NothingRan, Outcome, Ran;
 import 'package:is_logbook_client/is_logbook_client.dart' show ObjectId;
 
 final class _Indexed {
@@ -104,7 +104,7 @@ final class EntryIndex {
 
   /// [entry]'s kind and content, when it belongs to [trajectory]: on its
   /// own chain, or a [outcomeOfProposedActionKind] entry kept for one of
-  /// its proposals. [Refused] with why not. Never gets the logbook:
+  /// its proposals. [NothingRan] with why not. Never gets the logbook:
   /// everything needed already went by on the subscription (airlock-api-04,
   /// 18 Nov).
   Future<Outcome<({String kind, String body})>> entryOn(
@@ -112,10 +112,10 @@ final class EntryIndex {
     EntryId entry,
   ) async {
     final indexed = _byId[entry.hex];
-    if (indexed == null) return Refused('${entry.hex} is not in the logbook');
+    if (indexed == null) return NothingRan('${entry.hex} is not in the logbook');
     if (indexed.trajectory == trajectory || _resultBelongsTo(indexed, trajectory)) {
       return Ran((kind: indexed.kind, body: indexed.body));
     }
-    return Refused('${entry.hex} is on another chain');
+    return NothingRan('${entry.hex} is on another chain');
   }
 }

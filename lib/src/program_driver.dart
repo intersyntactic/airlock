@@ -55,7 +55,7 @@ final class ProgramDriverSocket implements RunsPrograms, ListsInstalledPrograms 
     }
   }
 
-  /// [Refused] only when the driver could not be reached, or refused the
+  /// [NothingRan] only when the driver could not be reached, or refused the
   /// connection outright, so nothing was sent. Once the request to run
   /// [program] is sent, a run that ends without its [Finished] throws
   /// [OutcomeUnknown]: the program may have started, even having printed
@@ -75,11 +75,12 @@ final class ProgramDriverSocket implements RunsPrograms, ListsInstalledPrograms 
       );
       if (await checkDriver?.call(s) case final why?) {
         s.destroy();
-        return Refused('program driver: $why');
+        return NothingRan('program driver: $why');
       }
     } on SocketException catch (e) {
-      return Refused('program driver: ${e.message}');
+      return NothingRan('program driver: ${e.message}');
     }
+    String? lastLine;
     try {
       s.add(
         utf8.encode(
@@ -89,6 +90,7 @@ final class ProgramDriverSocket implements RunsPrograms, ListsInstalledPrograms 
       await s.close();
       await for (final line
           in utf8.decoder.bind(s).transform(const LineSplitter())) {
+        lastLine = line;
         switch (decodeProgramMessage(jsonDecode(line), decodeExecResult)) {
           case Reported(:final progress):
             report(progress);
@@ -100,22 +102,12 @@ final class ProgramDriverSocket implements RunsPrograms, ListsInstalledPrograms 
     } on SocketException catch (e) {
       throw OutcomeUnknown('program driver: ${e.message}');
     } on FormatException catch (e) {
-      throw OutcomeUnknown('program driver: unreadable answer: ${e.message}');
+      throw OutcomeUnknown(
+        'program driver: unreadable answer: ${e.message}',
+        answer: lastLine,
+      );
     }
   }
-}
-
-/// A run was sent to the program driver and its outcome never came back,
-/// because [why]: the program may not have started, may have finished, or
-/// may still be running. Thrown, not recorded as an outcome, since every
-/// outcome the contract has would claim to know which.
-final class OutcomeUnknown implements Exception {
-  const OutcomeUnknown(this.why);
-
-  final String why;
-
-  @override
-  String toString() => 'outcome unknown: $why';
 }
 
 /// The driver was asked which programs it runs and did not say, because

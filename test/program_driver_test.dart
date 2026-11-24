@@ -60,8 +60,8 @@ void main() {
           checkDriver: (_) async => 'not the expected driver',
         ).runProgram(_git, _args, report: (_) {});
 
-        expect(result, isA<Refused>());
-        expect((result as Refused).why, contains('not the expected driver'));
+        expect(result, isA<NothingRan>());
+        expect((result as NothingRan).why, contains('not the expected driver'));
         expect(sawRequest, isFalse);
       });
 
@@ -85,12 +85,12 @@ void main() {
       });
 
       test(
-        'a connection that ends before Finished throws OutcomeUnknown, not Refused',
+        'a connection that ends before Finished throws OutcomeUnknown, not NothingRan',
         () async {
           final socket = await serverAnswering('');
 
-          expect(
-            () => ProgramDriverSocket(
+          await expectLater(
+            ProgramDriverSocket(
               socket,
             ).runProgram(_git, _args, report: (_) {}),
             throwsA(isA<OutcomeUnknown>()),
@@ -98,14 +98,14 @@ void main() {
         },
       );
 
-      test('refuses when no service is listening', () async {
+      test('NothingRan when no service is listening', () async {
         final socket = File('${directory.path}/nothing.sock');
 
         final result = await ProgramDriverSocket(
           socket,
         ).runProgram(_git, _args, report: (_) {});
 
-        expect(result, isA<Refused>());
+        expect(result, isA<NothingRan>());
       });
     });
 

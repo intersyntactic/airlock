@@ -26,6 +26,11 @@ final class ModelDriverSocket implements AsksTheModel {
   final File socket;
   final CheckDriver? checkDriver;
 
+  /// [NothingRan] only when the driver could not be reached, or refused the
+  /// connection outright, so nothing was sent. Once the call is sent, a
+  /// stream that ends without its [Finished] throws [OutcomeUnknown]: the
+  /// model may have been called, even having streamed nothing, and no
+  /// [Outcome] this returns says that.
   @override
   Future<Outcome<ModelReply>> askTheModel(
     ModelSignInName signIn,
@@ -34,15 +39,21 @@ final class ModelDriverSocket implements AsksTheModel {
     String request, {
     required Report report,
   }) async {
+    final Socket s;
     try {
-      final s = await Socket.connect(
+      s = await Socket.connect(
         InternetAddress(socket.path, type: InternetAddressType.unix),
         0,
       );
       if (await checkDriver?.call(s) case final why?) {
         s.destroy();
-        return Refused('model driver: $why');
+        return NothingRan('model driver: $why');
       }
+    } on SocketException catch (e) {
+      return NothingRan('model driver: ${e.message}');
+    }
+    String? lastLine;
+    try {
       s.add(
         utf8.encode(
           jsonEncode(encodeModelCall(signIn, model, systemPrompt, request)),
@@ -51,6 +62,7 @@ final class ModelDriverSocket implements AsksTheModel {
       await s.close();
       await for (final line
           in utf8.decoder.bind(s).transform(const LineSplitter())) {
+        lastLine = line;
         switch (decodeProgramMessage(jsonDecode(line), decodeModelReply)) {
           case Reported(:final progress):
             report(progress);
@@ -58,11 +70,14 @@ final class ModelDriverSocket implements AsksTheModel {
             return outcome;
         }
       }
-      return const Refused('model driver: refused caller');
+      throw const OutcomeUnknown('the connection closed before it finished');
     } on SocketException catch (e) {
-      return Refused('model driver: ${e.message}');
+      throw OutcomeUnknown('model driver: ${e.message}');
     } on FormatException catch (e) {
-      return Refused('model driver: unreadable answer: ${e.message}');
+      throw OutcomeUnknown(
+        'model driver: unreadable answer: ${e.message}',
+        answer: lastLine,
+      );
     }
   }
 }
@@ -113,7 +128,7 @@ final class RoutesModelCallsBySignIn implements AsksTheModel {
     required Report report,
   }) async {
     final driver = driversBySignIn[signIn];
-    if (driver == null) return Refused('no model driver for sign-in $signIn');
+    if (driver == null) return NothingRan('no model driver for sign-in $signIn');
     return driver.askTheModel(signIn, model, systemPrompt, request, report: report);
   }
 }

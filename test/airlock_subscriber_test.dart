@@ -254,7 +254,7 @@ void main() {
       // No real ReadsAndWritesFiles driver is wired tonight (drivers: const
       // []): the proposal is still decided, written and answered, but with
       // nothing able to carry it out.
-      expect(outcome, isA<Refused>());
+      expect(outcome, isA<NothingRan>());
     },
   );
 
@@ -323,8 +323,8 @@ void main() {
       // for lack of rules: proves the envelope's whatMayLeaveThisMachine
       // was read, not left null by a reader that tried the bare fields on
       // the whole envelope and found none of them there.
-      expect(outcome, isA<Refused>());
-      expect((outcome as Refused).why, isNot(contains('no rules or suit')));
+      expect(outcome, isA<NothingRan>());
+      expect((outcome as NothingRan).why, isNot(contains('no rules or suit')));
       expect(
         _skippedEntryLines(harness.journalDir),
         isEmpty,
@@ -749,8 +749,8 @@ void main() {
       // Decided for real (refused only for lack of a driver), not the
       // fail-closed "no rules or suit" rejection the old behaviour would
       // have already sent before the admitted entry arrived.
-      expect(outcome, isA<Refused>());
-      expect((outcome as Refused).why, isNot(contains('no rules or suit')));
+      expect(outcome, isA<NothingRan>());
+      expect((outcome as NothingRan).why, isNot(contains('no rules or suit')));
     },
   );
 
@@ -846,8 +846,8 @@ void main() {
         answer!.result,
         (json, field) => decodeReadResult(json, field),
       );
-      expect(outcome, isA<Refused>());
-      expect((outcome as Refused).why, contains('closed'));
+      expect(outcome, isA<NothingRan>());
+      expect((outcome as NothingRan).why, contains('closed'));
     },
   );
 }

@@ -22,28 +22,43 @@ final class WebRequestDriverSocket implements CarriesOutWebRequests {
   final File socket;
   final CheckDriver? checkDriver;
 
+  /// [NothingRan] only when the driver could not be reached, or refused the
+  /// connection outright, so nothing was sent. Once the request is written
+  /// to the driver's own socket (never the driver's own HTTP call, which
+  /// this never sees), anything short of a decoded answer throws
+  /// [OutcomeUnknown]: the driver may have already made the request, and
+  /// only it knows how far that got.
   @override
   Future<Outcome<WebResponse>> carryOutWebRequest(GrantedRequest request) async {
+    final Socket s;
     try {
-      final s = await Socket.connect(
+      s = await Socket.connect(
         InternetAddress(socket.path, type: InternetAddressType.unix),
         0,
       );
       if (await checkDriver?.call(s) case final why?) {
         s.destroy();
-        return Refused('web request driver: $why');
+        return NothingRan('web request driver: $why');
       }
+    } on SocketException catch (e) {
+      return NothingRan('web request driver: ${e.message}');
+    }
+    String? answer;
+    try {
       s.add(utf8.encode(jsonEncode(encodeGrantedRequest(request))));
       await s.close();
-      final answer = await utf8.decoder.bind(s).join();
+      answer = await utf8.decoder.bind(s).join();
       if (answer.isEmpty) {
-        return const Refused('web request driver: refused caller');
+        throw const OutcomeUnknown('web request driver: no answer');
       }
       return decodeOutcome(jsonDecode(answer), decodeWebResponse);
     } on SocketException catch (e) {
-      return Refused('web request driver: ${e.message}');
+      throw OutcomeUnknown('web request driver: ${e.message}', answer: answer);
     } on FormatException catch (e) {
-      return Refused('web request driver: unreadable answer: ${e.message}');
+      throw OutcomeUnknown(
+        'undecodable answer from ${socket.path}: ${e.message}',
+        answer: answer,
+      );
     }
   }
 }

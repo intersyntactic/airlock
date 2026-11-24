@@ -201,3 +201,25 @@ CheckDriver checkDriverRelease({
     return null;
   };
 }
+
+/// An action was sent to a driver and its outcome never came back, because
+/// [why]: the driver never answered at all, or answered with bytes that
+/// don't decode. Either way no driver answer vouches for what happened, so
+/// it is never safe to retry, and the airlock cannot say what it ran. Not
+/// an [Outcome] of the action: an [Outcome] the contract allows is always
+/// something a driver returned, and this is what it means when none did.
+///
+/// [answer] is the bytes the driver sent, when it sent any and they simply
+/// didn't decode (null when nothing was ever received) — kept as evidence,
+/// since an undecodable answer from a live driver is almost always version
+/// skew between it and this airlock, not a one-off bad byte.
+final class OutcomeUnknown implements Exception {
+  const OutcomeUnknown(this.why, {this.answer});
+
+  final String why;
+  final String? answer;
+
+  @override
+  String toString() =>
+      answer == null ? 'outcome unknown: $why' : 'outcome unknown: $why: $answer';
+}

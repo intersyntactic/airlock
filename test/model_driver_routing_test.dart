@@ -64,8 +64,8 @@ void main() {
       report: (_) {},
     );
 
-    expect(result, isA<Refused>());
-    expect((result as Refused).why, contains('someone-else'));
+    expect(result, isA<NothingRan>());
+    expect((result as NothingRan).why, contains('someone-else'));
     expect(claude.calledAs, isNull);
   });
 
@@ -210,23 +210,31 @@ void main() {
       );
 
       expect(calledCheckDriver, isTrue);
-      expect(result, isA<Refused>());
-      expect((result as Refused).why, contains('not the expected driver'));
+      expect(result, isA<NothingRan>());
+      expect((result as NothingRan).why, contains('not the expected driver'));
     });
 
-    test('refuses with the driver\'s own wording on an unreadable answer', () async {
-      final socket = await serverWriting(['not json']);
+    test(
+      'an unreadable answer throws OutcomeUnknown, since the call may '
+      'already have gone out',
+      () async {
+        final socket = await serverWriting(['not json']);
 
-      final result = await ModelDriverSocket(socket).askTheModel(
-        _signIn('nick-claude-team'),
-        ModelName.parse('some-model')!,
-        'system',
-        'request',
-        report: (_) {},
-      );
-
-      expect(result, isA<Refused>());
-      expect((result as Refused).why, contains('unreadable answer'));
-    });
+        await expectLater(
+          ModelDriverSocket(socket).askTheModel(
+            _signIn('nick-claude-team'),
+            ModelName.parse('some-model')!,
+            'system',
+            'request',
+            report: (_) {},
+          ),
+          throwsA(
+            isA<OutcomeUnknown>()
+                .having((e) => e.why, 'why', contains('unreadable answer'))
+                .having((e) => e.answer, 'answer', 'not json'),
+          ),
+        );
+      },
+    );
   });
 }

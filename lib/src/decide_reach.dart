@@ -35,7 +35,7 @@ final class GrantsReaches {
     Reach reach,
     FlightRules rules,
   ) => switch (reach) {
-    Reads() || Writes() => const Allow.withNoPaths(by: DecidedBy.rules),
+    Reads() || Writes() => const Allow.withNoPaths(by: null),
     Starts(:final program) => rules.allowsProgram(program)
         ? const Allow.withNoPaths(by: DecidedBy.rules)
         : Deny('not granted: starts $program', by: DecidedBy.rules),

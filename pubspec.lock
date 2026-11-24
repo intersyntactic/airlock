@@ -157,10 +157,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_airlock_api
-      sha256: "239bd3fe6f471582df2c3a12bc5cc98d8bf4bd3d812c7c63d4b88b03a03e891c"
+      sha256: b3d56b5d25a4f09736e39eedd21e14b4fbc597fd66a60c18f7925843281492a0
       url: "https://pub.dev"
     source: hosted
-    version: "0.17.0"
+    version: "0.18.0"
   is_annotation_shapes:
     dependency: transitive
     description:
@@ -197,18 +197,18 @@ packages:
     dependency: "direct main"
     description:
       name: is_effects
-      sha256: "4579f4c020b4748db14f157f30c1009e0f5575a60114ee1f9e6075744cdf5e41"
+      sha256: bea7444e36b51bf749b2fa0fc3e69a7f9d49b657475e6be5f792d3d046c9175c
       url: "https://pub.dev"
     source: hosted
-    version: "0.14.4"
+    version: "0.15.0"
   is_flight_rules:
     dependency: "direct main"
     description:
       name: is_flight_rules
-      sha256: "45e0d210466b8d435f42f53077123cf4553a95a8acfef8ac783e6ebbddd47cab"
+      sha256: "04b39990e3a0d1d7c5034d4306c8f39514f23690990f68cba1546eb85e1c76ac"
       url: "https://pub.dev"
     source: hosted
-    version: "0.6.0"
+    version: "0.6.1"
   is_logbook:
     dependency: "direct dev"
     description:
@@ -233,6 +233,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.1.0"
+  is_model_vocabulary:
+    dependency: transitive
+    description:
+      name: is_model_vocabulary
+      sha256: "48927abc9d91422f92e370dc8a7698a2ee29c4bfa44712f5e88c9ab126185e57"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.0"
   is_path_confinement:
     dependency: transitive
     description:
