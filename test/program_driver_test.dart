@@ -85,16 +85,17 @@ void main() {
       });
 
       test(
-        'a connection that ends before Finished throws OutcomeUnknown, not NothingRan',
+        'a connection that ends before Finished is StoppedPartway with '
+        'done: null, not NothingRan — the run may have started',
         () async {
           final socket = await serverAnswering('');
 
-          await expectLater(
-            ProgramDriverSocket(
-              socket,
-            ).runProgram(_git, _args, report: (_) {}),
-            throwsA(isA<OutcomeUnknown>()),
-          );
+          final result = await ProgramDriverSocket(
+            socket,
+          ).runProgram(_git, _args, report: (_) {});
+
+          expect(result, isA<StoppedPartway<ExecResult>>());
+          expect((result as StoppedPartway<ExecResult>).done, isNull);
         },
       );
 

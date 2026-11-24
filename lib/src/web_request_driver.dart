@@ -25,9 +25,10 @@ final class WebRequestDriverSocket implements CarriesOutWebRequests {
   /// [NothingRan] only when the driver could not be reached, or refused the
   /// connection outright, so nothing was sent. Once the request is written
   /// to the driver's own socket (never the driver's own HTTP call, which
-  /// this never sees), anything short of a decoded answer throws
-  /// [OutcomeUnknown]: the driver may have already made the request, and
-  /// only it knows how far that got.
+  /// this never sees), anything short of a decoded answer is
+  /// [StoppedPartway] with `done: null`: the driver may have already made
+  /// the request, and only it knows how far that got — never [NothingRan],
+  /// which would wrongly promise it is safe to retry.
   @override
   Future<Outcome<WebResponse>> carryOutWebRequest(GrantedRequest request) async {
     final Socket s;
@@ -49,15 +50,15 @@ final class WebRequestDriverSocket implements CarriesOutWebRequests {
       await s.close();
       answer = await utf8.decoder.bind(s).join();
       if (answer.isEmpty) {
-        throw const OutcomeUnknown('web request driver: no answer');
+        return const StoppedPartway(why: 'web request driver: no answer', done: null);
       }
       return decodeOutcome(jsonDecode(answer), decodeWebResponse);
     } on SocketException catch (e) {
-      throw OutcomeUnknown('web request driver: ${e.message}', answer: answer);
+      return StoppedPartway(why: 'web request driver: ${e.message}', done: null);
     } on FormatException catch (e) {
-      throw OutcomeUnknown(
-        'undecodable answer from ${socket.path}: ${e.message}',
-        answer: answer,
+      return StoppedPartway(
+        why: 'undecodable answer from ${socket.path}: ${e.message}: $answer',
+        done: null,
       );
     }
   }

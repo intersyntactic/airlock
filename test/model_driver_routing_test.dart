@@ -215,25 +215,24 @@ void main() {
     });
 
     test(
-      'an unreadable answer throws OutcomeUnknown, since the call may '
-      'already have gone out',
+      'an unreadable answer is StoppedPartway with done: null, since the '
+      'call may already have gone out',
       () async {
         final socket = await serverWriting(['not json']);
 
-        await expectLater(
-          ModelDriverSocket(socket).askTheModel(
-            _signIn('nick-claude-team'),
-            ModelName.parse('some-model')!,
-            'system',
-            'request',
-            report: (_) {},
-          ),
-          throwsA(
-            isA<OutcomeUnknown>()
-                .having((e) => e.why, 'why', contains('unreadable answer'))
-                .having((e) => e.answer, 'answer', 'not json'),
-          ),
+        final result = await ModelDriverSocket(socket).askTheModel(
+          _signIn('nick-claude-team'),
+          ModelName.parse('some-model')!,
+          'system',
+          'request',
+          report: (_) {},
         );
+
+        expect(result, isA<StoppedPartway<ModelReply>>());
+        final stopped = result as StoppedPartway<ModelReply>;
+        expect(stopped.done, isNull);
+        expect(stopped.why, contains('unreadable answer'));
+        expect(stopped.why, contains('not json'));
       },
     );
   });

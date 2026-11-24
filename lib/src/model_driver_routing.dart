@@ -28,9 +28,10 @@ final class ModelDriverSocket implements AsksTheModel {
 
   /// [NothingRan] only when the driver could not be reached, or refused the
   /// connection outright, so nothing was sent. Once the call is sent, a
-  /// stream that ends without its [Finished] throws [OutcomeUnknown]: the
-  /// model may have been called, even having streamed nothing, and no
-  /// [Outcome] this returns says that.
+  /// stream that ends without its [Finished] is [StoppedPartway] with
+  /// `done: null`: the model may have been called, even having streamed
+  /// nothing, and only the driver knows — never [NothingRan], which would
+  /// wrongly promise it is safe to retry.
   @override
   Future<Outcome<ModelReply>> askTheModel(
     ModelSignInName signIn,
@@ -70,13 +71,16 @@ final class ModelDriverSocket implements AsksTheModel {
             return outcome;
         }
       }
-      throw const OutcomeUnknown('the connection closed before it finished');
+      return const StoppedPartway(
+        why: 'model driver: the connection closed before it finished',
+        done: null,
+      );
     } on SocketException catch (e) {
-      throw OutcomeUnknown('model driver: ${e.message}');
+      return StoppedPartway(why: 'model driver: ${e.message}', done: null);
     } on FormatException catch (e) {
-      throw OutcomeUnknown(
-        'model driver: unreadable answer: ${e.message}',
-        answer: lastLine,
+      return StoppedPartway(
+        why: 'model driver: unreadable answer: ${e.message}: $lastLine',
+        done: null,
       );
     }
   }

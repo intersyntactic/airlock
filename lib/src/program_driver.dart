@@ -57,10 +57,11 @@ final class ProgramDriverSocket implements RunsPrograms, ListsInstalledPrograms 
 
   /// [NothingRan] only when the driver could not be reached, or refused the
   /// connection outright, so nothing was sent. Once the request to run
-  /// [program] is sent, a run that ends without its [Finished] throws
-  /// [OutcomeUnknown]: the program may have started, even having printed
-  /// nothing, and may still be running, and no [Outcome] this returns says
-  /// that.
+  /// [program] is sent, a run that ends without its [Finished] is
+  /// [StoppedPartway] with `done: null`: the program may have started, even
+  /// having printed nothing, and may still be running, and only the driver
+  /// knows — never [NothingRan], which would wrongly promise it is safe to
+  /// retry.
   @override
   Future<Outcome<ExecResult>> runProgram(
     ProgramName program,
@@ -98,13 +99,16 @@ final class ProgramDriverSocket implements RunsPrograms, ListsInstalledPrograms 
             return outcome;
         }
       }
-      throw const OutcomeUnknown('the connection closed before it finished');
+      return const StoppedPartway(
+        why: 'program driver: the connection closed before it finished',
+        done: null,
+      );
     } on SocketException catch (e) {
-      throw OutcomeUnknown('program driver: ${e.message}');
+      return StoppedPartway(why: 'program driver: ${e.message}', done: null);
     } on FormatException catch (e) {
-      throw OutcomeUnknown(
-        'program driver: unreadable answer: ${e.message}',
-        answer: lastLine,
+      return StoppedPartway(
+        why: 'program driver: unreadable answer: ${e.message}: $lastLine',
+        done: null,
       );
     }
   }

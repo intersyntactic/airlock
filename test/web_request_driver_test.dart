@@ -93,37 +93,40 @@ void main() {
 
     test(
       'an answer from before is_effects\' own wire format is undecodable, '
-      'and the request may already have gone out, so it throws '
-      'OutcomeUnknown rather than returning Refused',
+      'and the request may already have gone out, so it is StoppedPartway '
+      'with done: null, never Refused or NothingRan',
       () async {
         final socket = await serverAnswering(
           '{"ran":{"status":201,"created":"1:abc"}}\n',
         );
 
-        await expectLater(
-          WebRequestDriverSocket(socket).carryOutWebRequest(_granted(_origin)),
-          throwsA(
-            isA<OutcomeUnknown>()
-                .having((e) => e.why, 'why', contains('undecodable answer'))
-                .having((e) => e.answer, 'answer', contains('1:abc')),
-          ),
-        );
+        final result = await WebRequestDriverSocket(
+          socket,
+        ).carryOutWebRequest(_granted(_origin));
+
+        expect(result, isA<StoppedPartway<WebResponse>>());
+        final stopped = result as StoppedPartway<WebResponse>;
+        expect(stopped.done, isNull);
+        expect(stopped.why, contains('undecodable answer'));
+        expect(stopped.why, contains('1:abc'));
       },
     );
 
     test(
       'a driver that closes the socket without answering (web-request-driver-e1\'s '
-      'own-process refusal, e.g. the wrong user) throws OutcomeUnknown, since '
-      'the request was already sent',
+      'own-process refusal, e.g. the wrong user) is StoppedPartway with '
+      'done: null, since the request was already sent',
       () async {
         final socket = await serverAnswering('');
 
-        await expectLater(
-          WebRequestDriverSocket(socket).carryOutWebRequest(_granted(_origin)),
-          throwsA(
-            isA<OutcomeUnknown>().having((e) => e.why, 'why', contains('no answer')),
-          ),
-        );
+        final result = await WebRequestDriverSocket(
+          socket,
+        ).carryOutWebRequest(_granted(_origin));
+
+        expect(result, isA<StoppedPartway<WebResponse>>());
+        final stopped = result as StoppedPartway<WebResponse>;
+        expect(stopped.done, isNull);
+        expect(stopped.why, contains('no answer'));
       },
     );
 
