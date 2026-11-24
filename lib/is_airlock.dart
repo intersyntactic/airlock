@@ -2,7 +2,7 @@
 /// `is_airlock_api`, sending every entry to `is_logbook`'s one writer over
 /// a [LogbookClient].
 ///
-/// A journey path's decisions and outcomes are its own; what rules allow is
+/// A trajectory's decisions and outcomes are its own; what rules allow is
 /// the app's to say, so [Airlock] takes that policy as a function
 /// rather than guessing at a shape for `R`. What it owns is the logbook: one
 /// entry per [Entry].

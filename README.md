@@ -25,7 +25,7 @@ final airlock = Airlock<MyRules, MyPlace>(
 
 ## Policy is the app's, not this package's
 
-A journey path's `decide` needs to know what `R`, its rules, actually
+A trajectory's `decide` needs to know what `R`, its rules, actually
 allow — and `R` is whatever the app defines. Rather than guess at a shape
 for it, `Airlock` takes `decide` as a function. `P`, the host's
 place-in-a-turn type that every entry carries, is likewise never read
@@ -63,7 +63,7 @@ time, over `is_logbook_client`'s own `LogbookWriter` — the one reviewed
 client, not a hand-rolled copy of its wire protocol. Most entries start
 their own chain (`previous` null): a decision is its own, standalone
 fact. A result extends the decision it follows, which `send`'s
-`previous` is for; only the agent loop appends to a journey path's own
+`previous` is for; only the agent loop appends to a trajectory's own
 chain.
 
 `send` returns the written entry's `ObjectId`, or throws:

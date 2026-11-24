@@ -5,8 +5,8 @@
 /// Most entries this package sends start their own chain (`previous`
 /// null): witnessing an arrival and writing a decision are each their
 /// own, standalone fact. A result extends the decision it follows, which
-/// [send]'s [previous] is for; only the agent loop appends to a journey
-/// path's own chain.
+/// [send]'s [previous] is for; only the agent loop appends to a trajectory's
+/// own chain.
 library;
 
 import 'dart:typed_data';
