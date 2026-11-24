@@ -16,14 +16,14 @@ dependencies:
   checked_json: ^0.2.1
   is_logbook_client: ^0.3.0
   is_docking_station_api: ^0.4.0
-  is_unix_socket_user_check: ^0.1.0
+  is_unix_socket_user_check: ^0.2.0
 
 dev_dependencies:
   analyzer: ^14.7.0
   is_conversation_shapes: ^0.8.3
   # Only to start a real LogbookService in tests (logbook_service_harness.dart)
   # — never imported by lib/ or bin/, which depend on is_logbook_client alone.
-  is_logbook: ^0.3.1
+  is_logbook: ^0.4.0
   is_shapes: ^0.6.0
   lints: ^6.1.0
   test: ^1.25.0

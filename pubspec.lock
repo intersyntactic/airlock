@@ -213,10 +213,10 @@ packages:
     dependency: "direct dev"
     description:
       name: is_logbook
-      sha256: "3f00448cd4f3d1de9d18b338482f957e04174b63b2104c6b66be9c0b9cad721e"
+      sha256: "5f49f65a883a51550d7df5c9ba1c2b743a94e27bf60f5f5962152cd63cc528e7"
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.1"
+    version: "0.4.0"
   is_logbook_client:
     dependency: "direct main"
     description:
@@ -269,10 +269,10 @@ packages:
     dependency: "direct main"
     description:
       name: is_unix_socket_user_check
-      sha256: "85e99f8a46d1c6e3d697e57ac62c5b784f257f283c1ff56f627c70926e976b9b"
+      sha256: "898ad4fccd0ef6ae3249adae704305612426b3a8cd660ad48c3a976640ac9bf8"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0"
+    version: "0.2.1"
   is_web_address_vocabulary:
     dependency: transitive
     description:

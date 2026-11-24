@@ -182,8 +182,13 @@ CheckDriver checkDriverRelease({
 }) {
   final userCheck = SocketUserCheck.only(expectedUser);
   return (Socket driver) async {
-    if (!userCheck.allows(driver)) {
-      return 'not connected as the driver\'s own user $expectedUser';
+    switch (userCheck.decide(driver)) {
+      case Allowed():
+        break;
+      case final NotAllowed refused:
+        return 'not connected as the driver\'s own user $expectedUser: $refused';
+      case final Unread refused:
+        return 'not connected as the driver\'s own user $expectedUser: $refused';
     }
     if (expected == null) return null;
     final release = await driverReleaseOf(driver);
