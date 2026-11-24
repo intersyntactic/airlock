@@ -531,8 +531,11 @@ void main() {
             'startsTrajectory': true,
             'rules': _rulesJson,
             'replyEndpoint': {
-              'origin': 'https://smba.trafficmanager.net',
-              'pathPrefix': '/v3/conversations/c/activities/',
+              'case': 'under-web-address',
+              'addressPrefix': {
+                'origin': 'https://smba.trafficmanager.net',
+                'pathPrefix': '/v3/conversations/c/activities/',
+              },
             },
           }),
         ),
@@ -582,6 +585,69 @@ void main() {
           PathPrefix.parse('/v3/conversations/c/activities/')!,
         ),
       );
+    },
+  );
+
+  test(
+    'a Slack replyEndpoint grants nothing here (task 75 not yet built), '
+    'rather than being misread as a web address',
+    () async {
+      final admittedBody = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'event': ObjectId.of(utf8.encode('fake slack event')).hex,
+            'by': 'rules',
+            'translatedEvent': {'case': 'something-else'},
+            'startsMission': true,
+            'startsTrajectory': true,
+            'rules': _rulesJson,
+            'replyEndpoint': {
+              'case': 'in-slack-conversation',
+              'origin': 'https://slack.com',
+              'channel': 'C1234567',
+            },
+          }),
+        ),
+      );
+      final admitted = _fakeEntry(
+        'event-admitted-to-mission',
+        null,
+        admittedBody,
+      );
+      final trajectoryId = TrajectoryId.of(admitted.recorded);
+
+      final entryIndex = EntryIndex();
+      final airlock = Airlock<FlightRules, PlaceInTrajectory>(
+        LogbookClient(harness.socketPath),
+        decide: (trajectory, reach, rules) =>
+            const Allow.withNoPaths(by: DecidedBy.rules),
+        entryOn: entryIndex.entryOn,
+      );
+
+      final started = Completer<(TrajectoryId, AddressPrefix?)>();
+      unawaited(
+        runAirlockService(
+          subscribe: () => Stream.fromIterable([admitted, const CaughtUp(null)]),
+          airlock: airlock,
+          drivers: const [],
+          proposalsEnabled: true,
+          entryIndex: entryIndex,
+          writeRejection: airlock.writeRejection,
+          writeLogbookEntry: airlock.writeLogbookEntry,
+          say: (_) {},
+          onTrajectoryStarted: (trajectory, replyEndpoint) {
+            if (!started.isCompleted) {
+              started.complete((trajectory, replyEndpoint));
+            }
+          },
+        ),
+      );
+
+      final (gotTrajectory, gotReplyEndpoint) = await started.future.timeout(
+        const Duration(seconds: 2),
+      );
+      expect(gotTrajectory, trajectoryId);
+      expect(gotReplyEndpoint, isNull);
     },
   );
 
