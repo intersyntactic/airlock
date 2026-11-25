@@ -20,18 +20,11 @@ import 'logbook_client.dart';
 /// logbook for what it holds is genuinely this package's to build (see
 /// lib/src/entry_index.dart), but is not this type's own concern.
 final class Airlock<R, P> implements DecidesActionsAndWritesToTheLogbook<R, P> {
-  Airlock(
-    this._logbook, {
-    required this._decide,
-    required Future<Outcome<({String kind, String body})>> Function(
-      TrajectoryId trajectory,
-      EntryId entry,
-    )
-    entryOn,
-  }) : _entryOn = entryOn;
+  Airlock(this._logbook, {required this._decide, required this._entryOn});
 
   final LogbookClient _logbook;
-  final Decision Function(TrajectoryId trajectory, Reach reach, R rules) _decide;
+  final Decision Function(TrajectoryId trajectory, Reach reach, R rules)
+  _decide;
   final Future<Outcome<({String kind, String body})>> Function(
     TrajectoryId trajectory,
     EntryId entry,
@@ -45,8 +38,11 @@ final class Airlock<R, P> implements DecidesActionsAndWritesToTheLogbook<R, P> {
   final _decisionHash = <AirlockDecisionOnAction<P>, ObjectId>{};
 
   @override
-  Future<Decision> decide(TrajectoryId trajectory, Reach reach, R rules) async =>
-      _decide(trajectory, reach, rules);
+  Future<Decision> decide(
+    TrajectoryId trajectory,
+    Reach reach,
+    R rules,
+  ) async => _decide(trajectory, reach, rules);
 
   @override
   Future<Outcome<({String kind, String body})>> entryOn(
@@ -87,7 +83,11 @@ final class Airlock<R, P> implements DecidesActionsAndWritesToTheLogbook<R, P> {
     final body = jsonEncode(
       outcomeOfProposedActionToJson(decision.proposed, resultAsJson),
     );
-    await _logbook.send(outcomeOfProposedActionKind, utf8.encode(body), previous: previous);
+    await _logbook.send(
+      outcomeOfProposedActionKind,
+      utf8.encode(body),
+      previous: previous,
+    );
   }
 
   /// Answers [proposed], a logbook entry this package never decided
