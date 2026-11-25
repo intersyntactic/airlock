@@ -26,7 +26,12 @@ List<String> _skippedEntryLines(Directory journalDir) => [
 /// task 38 exists for — can only be exercised by handing
 /// [runAirlockService] a fabricated [Entry] directly, the same shape a
 /// pre-validation writer, or a bug in validation, could have left behind.
-Entry _fakeEntry(String kind, ObjectId? previous, Uint8List body) {
+Entry _fakeEntry(
+  String kind,
+  ObjectId? previous,
+  Uint8List body, {
+  TrajectoryId? trajectory,
+}) {
   final recorded = Uint8List.fromList([
     ...utf8.encode('$kind\n${previous?.hex ?? '-'}\n'),
     ...body,
@@ -35,6 +40,7 @@ Entry _fakeEntry(String kind, ObjectId? previous, Uint8List body) {
     id: ObjectId.of(recorded),
     kind: Kind.parse(kind)!,
     previous: previous,
+    trajectory: trajectory,
     recorded: recorded,
   );
 }
@@ -407,6 +413,7 @@ void main() {
         'users-assigned-to-trajectory',
         null,
         assignedBody,
+        trajectory: trajectoryId,
       );
 
       final proposedBody = Uint8List.fromList(
@@ -416,6 +423,7 @@ void main() {
         ActionProposedByAgentLoop.kind,
         assigned.id,
         proposedBody,
+        trajectory: trajectoryId,
       );
       final proposedId = EntryId.of(proposed.recorded);
 
@@ -689,6 +697,7 @@ void main() {
         'users-assigned-to-trajectory',
         null,
         assignedBody,
+        trajectory: trajectoryId,
       );
 
       final proposedBody = Uint8List.fromList(
@@ -698,6 +707,7 @@ void main() {
         ActionProposedByAgentLoop.kind,
         assigned.id,
         proposedBody,
+        trajectory: trajectoryId,
       );
       final proposedId = EntryId.of(proposed.recorded);
 
@@ -777,6 +787,7 @@ void main() {
             }),
           ),
         ),
+        trajectory: trajectoryId,
       );
 
       final proposed = _fakeEntry(
@@ -785,6 +796,7 @@ void main() {
         Uint8List.fromList(
           utf8.encode(jsonEncode({'program': 'read', 'place': 1, 'input': ''})),
         ),
+        trajectory: trajectoryId,
       );
       final proposedId = EntryId.of(proposed.recorded);
 
