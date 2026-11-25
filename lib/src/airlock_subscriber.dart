@@ -22,12 +22,12 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
+import 'package:is_conversation_reply_vocabulary/is_conversation_reply_vocabulary.dart'
+    show RepliesInSlackConversation, RepliesUnderWebAddress;
 import 'package:is_docking_station_api/path_start.dart'
     show
         EntryStartsTrajectory,
         EntryStartsNoTrajectory,
-        RepliesInSlackConversation,
-        RepliesUnderWebAddress,
         UnreadableTrajectoryEntry,
         readTrajectoryStart;
 import 'package:is_effects/is_effects.dart';
