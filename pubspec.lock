@@ -213,18 +213,18 @@ packages:
     dependency: "direct dev"
     description:
       name: is_logbook
-      sha256: f5d4b98b014ed8991a37af4d2bf62ee8c1666bb8c7808d4fd86b856c92826b03
+      sha256: d51ba6049c316fce50c7f1bc670b84a3893c2102d911f8b664cc1ea71c9ba73c
       url: "https://pub.dev"
     source: hosted
-    version: "0.4.4"
+    version: "0.5.0"
   is_logbook_client:
     dependency: "direct main"
     description:
       name: is_logbook_client
-      sha256: aff53c968e53c1b707305adeb212bd700ca0c231fa1caee4774b5db52f8cc4b0
+      sha256: d787e3c82729ead68d84381c29d2fc388d4905b848d234a4b520ebee1a0c8040
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.0"
+    version: "0.4.0"
   is_logbook_format:
     dependency: transitive
     description:

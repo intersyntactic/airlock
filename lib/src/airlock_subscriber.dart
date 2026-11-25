@@ -277,12 +277,18 @@ Future<void> runAirlockService({
 
   await for (final item in subscribe()) {
     // Indexed by id before any kind-specific handling, so every entry —
-    // not just the kinds this service has a case for — carries its
-    // chain's trajectory forward and is findable by EntryId for recordedOn.
-    if (item case Entry(:final id, :final previous, :final kind, :final body)) {
+    // not just the kinds this service has a case for — is findable by
+    // EntryId for recordedOn. Its trajectory is the service's own stamp
+    // (is_logbook 0.5.0, is_logbook_client 0.4.0), not walked here.
+    if (item case Entry(
+      :final id,
+      :final trajectory,
+      :final kind,
+      :final body,
+    )) {
       entryIndex.add(
         id,
-        previous: previous,
+        trajectory: trajectory,
         kind: kind.toString(),
         body: utf8.decode(body),
       );
@@ -304,10 +310,7 @@ Future<void> runAirlockService({
 
       case Entry(:final kind, :final id, recorded: final recorded)
           when kind == _admittedKind:
-        switch (readTrajectoryStart<FlightRules>(
-          recorded,
-          rules: parseRules,
-        )) {
+        switch (readTrajectoryStart<FlightRules>(recorded, rules: parseRules)) {
           case EntryStartsTrajectory<FlightRules>(
             trajectory: final trajectoryId,
             rules: final rules,
@@ -318,13 +321,10 @@ Future<void> runAirlockService({
             // Slack grant is still undesigned, and no live trajectory
             // replies through Slack yet), so a Slack endpoint grants
             // nothing here rather than being misread as one.
-            onTrajectoryStarted?.call(
-              trajectoryId,
-              switch (replyEndpoint) {
-                RepliesUnderWebAddress(:final prefix) => prefix,
-                RepliesInSlackConversation() || null => null,
-              },
-            );
+            onTrajectoryStarted?.call(trajectoryId, switch (replyEndpoint) {
+              RepliesUnderWebAddress(:final prefix) => prefix,
+              RepliesInSlackConversation() || null => null,
+            });
             if (build(trajectoryId) != null) await releaseAwaiting(trajectoryId);
           case EntryStartsNoTrajectory<FlightRules>():
             break;
@@ -355,7 +355,6 @@ Future<void> runAirlockService({
           break;
         }
         suitOf[assigned.trajectory] = assigned.suit;
-        entryIndex.root(id, assigned.trajectory);
         if (build(assigned.trajectory) != null) {
           await releaseAwaiting(assigned.trajectory);
         }
