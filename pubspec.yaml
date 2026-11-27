@@ -22,7 +22,6 @@ dependencies:
 
 dev_dependencies:
   analyzer: ^14.7.0
-  is_conversation_shapes: ^0.8.3
   # Only to start a real LogbookService in tests (logbook_service_harness.dart)
   # — never imported by lib/ or bin/, which depend on is_logbook_client alone.
   is_logbook: ^0.5.0

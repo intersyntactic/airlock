@@ -186,7 +186,7 @@ packages:
     source: hosted
     version: "0.1.0"
   is_conversation_shapes:
-    dependency: "direct dev"
+    dependency: transitive
     description:
       name: is_conversation_shapes
       sha256: "9cc49a7f1bf6ddb077a86516533b706b6c2ac08856b036a7cfcec67286ba09c1"
