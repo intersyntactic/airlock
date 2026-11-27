@@ -4,6 +4,7 @@ import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_effects/is_effects.dart';
 
 import 'logbook_client.dart';
+import 'trajectory.dart';
 
 /// A [DecidesActionsAndWritesToTheLogbook] that sends what it decides and
 /// the entries that follow to `is_logbook`'s one writer, over a
@@ -160,6 +161,7 @@ String _reach(Reach reach) => switch (reach) {
     'makes web requests ${requests.map(_proposedRequest).join(', ')}',
   FetchesFromWeb(:final fetch) =>
     'fetches ${fetch.origin}${fetch.path} as ${fetch.signIn ?? 'no sign-in'}',
+  RepliesToOwnConversation() => 'replies to its own conversation',
   CallsTheModel(:final signIn, :final model) => 'asks $model as $signIn',
 };
 

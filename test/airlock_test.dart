@@ -3,7 +3,13 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:is_airlock/is_airlock.dart';
+import 'package:is_conversation_reply_vocabulary/is_conversation_reply_vocabulary.dart';
 import 'package:is_logbook/is_logbook.dart' show Intact, ObjectId;
+import 'package:is_reply_requests_api/is_reply_requests_api.dart'
+    show WritesWebAddressReplyRequests;
+import 'package:is_sign_in_vocabulary/is_sign_in_vocabulary.dart' show SignIn;
+import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'
+    show AddressPrefix, Origin, PathPrefix, WebPath;
 import 'package:test/test.dart';
 
 import 'logbook_service_harness.dart';
@@ -47,6 +53,31 @@ final class _FakeWebDriver implements CarriesOutWebRequests {
   Future<Outcome<WebResponse>> carryOutWebRequest(
     GrantedRequest request,
   ) async => onSend(request);
+}
+
+/// A [WritesWebAddressReplyRequests] that draws exactly one POST to [to]'s
+/// address for [content]'s text, and reads the id a fake response names.
+final class _FakeWebAddressReplies implements WritesWebAddressReplyRequests {
+  @override
+  List<ProposedRequest> draw(
+    RepliesUnderWebAddress to,
+    TrajectoryId trajectory,
+    ReplyContent content,
+  ) => [
+    ProposedRequest(
+      to.prefix.origin,
+      method: Method.post,
+      path: WebPath.parse(to.prefix.pathPrefix.value)!,
+      body: content.text.value,
+    ),
+  ];
+
+  @override
+  Outcome<ServerAssignedMessageId> posted(WebResponse response) =>
+      switch (response.created) {
+        final String id? => Ran(ServerAssignedMessageId.parse(id)!),
+        null => const NothingRan('no id in the response'),
+      };
 }
 
 /// The bytes of every entry the harness's logbook holds, in order, read
@@ -138,6 +169,7 @@ void main() {
     Airlock<String, int> a, {
     String rules = 'rules',
     Outcome<WebResponse> Function(GrantedRequest request)? onSend,
+    WritesWebAddressReplyRequests? webAddressReplies,
   }) => Trajectory<String, int>(
     id: _id('conv-1'),
     drivers: [
@@ -147,17 +179,15 @@ void main() {
     airlock: a,
     rules: rules,
     suit: Suit.parse('suit-1')!,
+    webAddressReplies: webAddressReplies,
   );
 
-  /// The crux for one action at [place] on [trajectory], driving a real run
-  /// through the trajectory's own `consider` — the only way to reach a
-  /// result the library produces itself, since its constructor is private —
-  /// by writing a made-up `action-proposed-by-agent-loop` body through
-  /// [Crux.forTheModelCall] (one action per crux, matching `.at`'s old
-  /// one-place-per-call shape) and reading the real outcome entry
-  /// [trajectory]'s airlock wrote back for it.
-  Crux at(Trajectory<String, int> trajectory, int place) =>
-      Crux.forTheModelCall(_DirectLink(trajectory, place, harness), turn: place);
+  /// A [ProposesActions] for one action at [place] on [trajectory], driving
+  /// a real run through the trajectory's own `consider` — the only way to
+  /// reach a result the library produces itself, since its constructor is
+  /// private.
+  ProposesActions at(Trajectory<String, int> trajectory, int place) =>
+      _DirectLink(trajectory, place);
 
   test('decide delegates to the rules given to it', () async {
     var decided = false;
@@ -402,41 +432,120 @@ void main() {
       expect(read!.proposed, proposedId);
     },
   );
+
+  test(
+    'a ReplyToOwnConversation allowed with a grantedReply posts through '
+    'the writer this trajectory has for its endpoint, as the granted '
+    'sign-in',
+    () async {
+      final endpoint = RepliesUnderWebAddress(
+        AddressPrefix.of(
+          Origin.parse('https://smba.trafficmanager.net')!,
+          PathPrefix.parse('/v3/conversations/c/activities/')!,
+        ),
+      );
+      final signIn = SignIn.parse('cam-teams')!;
+      final a = airlock(
+        decide: (trajectory, reach, rules) => switch (reach) {
+          RepliesToOwnConversation() => Allow.toReplyTo(
+            endpoint,
+            asSignIn: signIn,
+            by: DecidedBy.rules,
+          ),
+          _ => const Allow.withNoPaths(by: DecidedBy.rules),
+        },
+      );
+      final trajectory = path(
+        a,
+        webAddressReplies: _FakeWebAddressReplies(),
+        onSend: (request) {
+          expect(request.proposed.signIn, signIn);
+          return const Ran(WebResponse(status: 200, created: 'msg-1'));
+        },
+      );
+
+      final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
+        ReplyContent(text: ReplyText.parse('hi')!),
+        then: Done.new,
+      );
+      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
+      expect(sent.value, isA<Ran<List<PostedMessage>>>());
+      expect(
+        (sent.value as Ran<List<PostedMessage>>).output,
+        [
+          PostedUnderWebAddress.answering(
+            endpoint,
+            ServerAssignedMessageId.parse('msg-1')!,
+          ),
+        ],
+      );
+    },
+  );
+
+  test(
+    'a ReplyToOwnConversation allowed with no writer for its endpoint '
+    'runs nothing, as this machine cannot run it',
+    () async {
+      final endpoint = RepliesInSlackConversation(
+        origin: Origin.parse('https://slack.com')!,
+        channel: SlackChannelId.parse('C1234567')!,
+      );
+      final a = airlock(
+        decide: (trajectory, reach, rules) => switch (reach) {
+          RepliesToOwnConversation() => Allow.toReplyTo(
+            endpoint,
+            asSignIn: SignIn.parse('bot-sign-in')!,
+            by: DecidedBy.rules,
+          ),
+          _ => const Allow.withNoPaths(by: DecidedBy.rules),
+        },
+      );
+      // No slackReplies writer passed to path(), so nothing can run this.
+      final trajectory = path(a);
+
+      final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
+        ReplyContent(text: ReplyText.parse('hi')!),
+        then: Done.new,
+      );
+      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
+      expect(sent.value, isA<NothingRan>());
+      expect(
+        (sent.value as NothingRan).why,
+        contains('this machine cannot run'),
+      );
+    },
+  );
 }
 
-/// Drives one action of a crux through a real [Trajectory]'s own
+/// Proposes one action straight through a real [Trajectory]'s own
 /// `consider`, the only way to reach a result [Airlock] produces itself
-/// (its constructor is private): [writeProposal] hands the crux's own
-/// `ActionProposedByAgentLoop` json straight to `consider`, tagged with a
-/// made-up [EntryId] unique to this link, and [outcomeNaming] reads back
-/// the real `outcome-of-proposed-action` entry the airlock wrote for it
-/// out of the harness's own logbook. Good for one action — one crux is
-/// built per call to [AirlockTestHelpers.at], same as `.at` fixed one
-/// place per call before `Crux` existed.
-final class _DirectLink implements ProposesActionsThroughTheLogbook {
-  _DirectLink(this.trajectory, this.place, this.harness);
+/// (its constructor is private): builds the program's own proposal body,
+/// reads it back as an [ActionProposedByAgentLoop] exactly as the real
+/// logbook-reading path would, tags it with a made-up [EntryId] unique to
+/// this call, and reads the outcome [Trajectory._consider] publishes on
+/// [Trajectory.results] for it. Good for one action — one link is built
+/// per call to [AirlockTestHelpers.at].
+final class _DirectLink implements ProposesActions {
+  const _DirectLink(this.trajectory, this.place);
 
   final Trajectory<String, int> trajectory;
   final int place;
-  final LogbookServiceHarness harness;
 
   @override
-  Future<EntryId> writeProposal(String body) async {
+  Future<Outcome<O>> propose<I, O>(Program<I, O> program, I input) async {
+    final body = program.proposal(input, at: ProposedForTheModelCall.at(place));
     final proposal = ActionProposedByAgentLoop.read(body);
     if (proposal is! ActionProposedByAgentLoop) {
       throw StateError('test built an unreadable proposal: $body');
     }
     final proposed = EntryId.of(utf8.encode('direct-link-$place-$body'));
-    await trajectory.consider(proposal, place, proposed: proposed);
-    return proposed;
-  }
-
-  @override
-  Future<String> outcomeNaming(EntryId proposed) async {
-    final lines = _entries(harness.journalDir).map(utf8.decode);
-    final line = lines.firstWhere(
-      (l) => l.contains('"proposed":"${proposed.hex}"'),
+    final result = trajectory.results.firstWhere(
+      (r) => r.decision.proposed == proposed,
     );
-    return line.substring(line.indexOf('{'));
+    await trajectory.consider(proposal, place, proposed: proposed);
+    // cast-ok: the stream type-erases to Outcome<Object?>, but this entry
+    // is the one `consider` just wrote for `program`, so its outcome is
+    // always an Outcome<O>.
+    return (await result).result as Outcome<O>;
   }
 }

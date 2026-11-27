@@ -38,4 +38,5 @@ export 'src/entry_index.dart';
 export 'src/logbook_client.dart';
 export 'src/model_driver_routing.dart';
 export 'src/program_driver.dart';
+export 'src/trajectory.dart';
 export 'src/web_request_driver.dart';

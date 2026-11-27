@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.0
+
+`Trajectory`, `DecidesActionsAndWritesToTheLogbook` and `Underway` move
+here from `is_airlock_api` (0.21.0/0.22.0, "the contract holds types and
+their JSON only"): deciding and carrying an action out, over this
+package's own drivers, was never the contract's job. `is_airlock_api`
+keeps `CarriesOutEachProgram`, the interface `Trajectory` now implements
+one dispatcher of per decided action — bumped to ^0.22.0, with
+`is_effects` ^0.17.0, `is_flight_rules` ^0.9.0. Every type `is_effects`
+no longer re-exports (`ModelReply`, `SignIn`, `Origin`/`WebPath`/
+`PathPrefix`/`AddressPrefix`) is now a direct dependency on its own
+vocabulary package.
+
+The reply arm: `runAirlockService` and `Trajectory` take `slackReplies`
+and `webAddressReplies` writers (`is_reply_requests_api` ^0.2.0); a
+`RepliesToOwnConversation` reach is granted through
+`WhatMayLeaveThisMachine.signInForReply`, to the trajectory's own
+`ReplyEndpoint` (`is_conversation_reply_vocabulary` ^0.1.0, no longer
+narrowed to a web address before `GrantsReaches` sees it). Teams is
+wired into `bin/airlock_service.dart` (`is_teams_module`, pinned to the
+`teams_module` repo's `v0.0.14` tag — pure, no secrets, no new env
+vars); Slack's writer waits on `is_slack_module` publishing.
+
 ## 0.2.1
 
 - `AIRLOCK_MODEL_DRIVER_SOCKETS`'s JSON map now carries each sign-in's
