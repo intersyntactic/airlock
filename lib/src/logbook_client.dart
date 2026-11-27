@@ -37,7 +37,14 @@ final class LogbookFailed implements Exception {
   String toString() => 'LogbookFailed: $why';
 }
 
-final class LogbookClient {
+/// Sends one entry to `is_logbook`'s one writer: what [Airlock] reaches
+/// for, so a test can fake a transient failure without a real logbook.
+/// [LogbookClient] is the real one.
+abstract interface class SendsToTheLogbook {
+  Future<ObjectId> send(String kind, Uint8List body, {ObjectId? previous});
+}
+
+final class LogbookClient implements SendsToTheLogbook {
   const LogbookClient(this.socketPath);
 
   /// The writer service's Unix socket.
@@ -54,6 +61,7 @@ final class LogbookClient {
   /// when nothing was, or send it again when it already had.
   /// [AlreadyRecorded] counts as success: these exact bytes, kind and
   /// previous are already in, by this call or an earlier one.
+  @override
   Future<ObjectId> send(
     String kind,
     Uint8List body, {

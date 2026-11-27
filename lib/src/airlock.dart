@@ -20,16 +20,24 @@ import 'logbook_client.dart';
 /// logbook for what it holds is genuinely this package's to build (see
 /// lib/src/entry_index.dart), but is not this type's own concern.
 final class Airlock<R, P> implements DecidesActionsAndWritesToTheLogbook<R, P> {
-  Airlock(this._logbook, {required this._decide, required this._entryOn});
+  /// [sleep] is what [writeResult] waits on between retries of a failed
+  /// write, the real clock by default — passed in so a test can make it
+  /// return at once instead of actually waiting out a backoff.
+  Airlock(
+    this._logbook, {
+    required this._decide,
+    required this._entryOn,
+    this._sleep = _delay,
+  });
 
-  final LogbookClient _logbook;
-  final Decision Function(TrajectoryId trajectory, Reach reach, R rules)
-  _decide;
+  final SendsToTheLogbook _logbook;
+  final Decision Function(TrajectoryId trajectory, Reach reach, R rules) _decide;
   final Future<Outcome<({String kind, String body})>> Function(
     TrajectoryId trajectory,
     EntryId entry,
   )
   _entryOn;
+  final Future<void> Function(Duration duration) _sleep;
 
   /// The logbook entry [writeDecision] wrote for a decision, so
   /// [writeResult] can extend its chain without a second write naming it
@@ -68,6 +76,17 @@ final class Airlock<R, P> implements DecidesActionsAndWritesToTheLogbook<R, P> {
   /// [outcomeOfProposedActionKind]: the loop's `propose()` is waiting to
   /// decode exactly that back, and a human line there would leave it
   /// waiting forever instead of failing loudly.
+  ///
+  /// The action already ran by the time this is called, so its effect —
+  /// a web request sent, a program started — cannot be undone by failing
+  /// to record it. A [LogbookFailed] write (the logbook unreachable, or
+  /// no telling whether it landed) retries with backoff until it answers,
+  /// rather than crashing the whole service and risking the restart that
+  /// re-decides and re-runs the same action (task 39, Nick's fix 24 Nov):
+  /// retrying this exact write is safe even if the first attempt actually
+  /// landed, since [LogbookClient.send] already treats [AlreadyRecorded]
+  /// as success. A [LogbookRefused] write is a different problem — these
+  /// exact bytes were never going in — so that still propagates at once.
   @override
   Future<void> writeResult(
     AirlockDecisionOnAction<P> decision,
@@ -83,11 +102,19 @@ final class Airlock<R, P> implements DecidesActionsAndWritesToTheLogbook<R, P> {
     final body = jsonEncode(
       outcomeOfProposedActionToJson(decision.proposed, resultAsJson),
     );
-    await _logbook.send(
-      outcomeOfProposedActionKind,
-      utf8.encode(body),
-      previous: previous,
-    );
+    final encoded = utf8.encode(body);
+    for (var attempt = 0;; attempt++) {
+      try {
+        await _logbook.send(
+          outcomeOfProposedActionKind,
+          encoded,
+          previous: previous,
+        );
+        return;
+      } on LogbookFailed {
+        await _sleep(_backoff(attempt));
+      }
+    }
   }
 
   /// Answers [proposed], a logbook entry this package never decided
@@ -143,3 +170,13 @@ String _decision(Decision decision) => switch (decision) {
   Allow(:final by) => 'allow (by ${by?.name ?? 'no rule'})',
   Deny(:final why, :final by) => 'deny (by ${by.name}): $why',
 };
+
+Future<void> _delay(Duration duration) => Future<void>.delayed(duration);
+
+/// How long [writeResult] waits before its (0-indexed) [attempt]th retry:
+/// 200ms, doubling each time, capped at 30s so a long-down logbook is
+/// still checked regularly rather than ever less often. [attempt] is
+/// clamped before shifting, so a long outage can't shift it into
+/// overflow.
+Duration _backoff(int attempt) =>
+    Duration(milliseconds: 200 << attempt.clamp(0, 7));
