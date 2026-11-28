@@ -7,9 +7,8 @@ library;
 import 'dart:async';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
-import 'package:is_conversation_reply_vocabulary/is_conversation_reply_vocabulary.dart';
+import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart';
 import 'package:is_effects/is_effects.dart';
-import 'package:is_reply_requests_api/is_reply_requests_api.dart';
 import 'package:is_model_vocabulary/is_model_vocabulary.dart' show ModelReply;
 import 'package:is_sign_in_vocabulary/is_sign_in_vocabulary.dart' show SignIn;
 

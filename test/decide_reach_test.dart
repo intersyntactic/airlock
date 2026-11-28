@@ -5,7 +5,7 @@
 import 'dart:typed_data';
 
 import 'package:is_airlock/is_airlock.dart';
-import 'package:is_conversation_reply_vocabulary/is_conversation_reply_vocabulary.dart'
+import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart'
     show RepliesUnderWebAddress, ReplyContent, ReplyEndpoint, ReplyText;
 import 'package:is_sign_in_vocabulary/is_sign_in_vocabulary.dart' show SignIn;
 import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'

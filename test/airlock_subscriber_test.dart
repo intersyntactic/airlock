@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:is_airlock/is_airlock.dart';
-import 'package:is_conversation_reply_vocabulary/is_conversation_reply_vocabulary.dart'
+import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart'
     show RepliesInSlackConversation, RepliesUnderWebAddress, ReplyEndpoint, SlackChannelId;
 import 'package:is_logbook_client/is_logbook_client.dart';
 import 'package:is_shapes/is_shapes.dart' show MissionId;

@@ -1,5 +1,5 @@
 import 'package:is_airlock_api/is_airlock_api.dart';
-import 'package:is_conversation_reply_vocabulary/is_conversation_reply_vocabulary.dart'
+import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart'
     show ReplyEndpoint;
 import 'package:is_effects/is_effects.dart';
 import 'package:is_flight_rules/is_flight_rules.dart';
