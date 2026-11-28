@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.0
+
+Drops `is_effects` entirely, following its dissolution into
+`is_outcome_vocabulary`, `is_relative_path_vocabulary`,
+`is_file_request_vocabulary`, `is_program_request_vocabulary` and
+`is_web_request_vocabulary`. `CarriesOutActions` is gone: `Trajectory`
+now takes a `Drivers` record (`files`, `programs`, `web`, `model`)
+naming each driver's slot, so two drivers of the same kind can no
+longer both be given. `Underway`'s `Progress` becomes the sealed
+`DriverProgress` (`ProgramPrinted`/`ModelReplyArriving`), since the
+program driver and model driver report different piece types.
+
+`is_airlock_api` bumps to ^0.26.0 (renames its `ModelCall` to
+`ModelCallNamingRequestEntry`, dodging the clash with
+`is_model_vocabulary`'s own `ModelCall`), `is_flight_rules` to
+^0.12.0, `is_model_vocabulary` to ^0.5.0, `is_sign_in_vocabulary` to
+^0.1.2, and `is_web_request_vocabulary` to ^0.1.1 (`ProposedRequest`
+now throws `ArgumentError` on two header names that fold to the same
+one; this repo's own `avoid_catching_errors`/
+`avoid_catches_without_on_clauses` rules forbid catching it, so the
+existing driver-threw path in `Trajectory._consider` — write
+`StoppedPartway`, then rethrow — handles it instead of a caught
+refusal).
+
 ## 0.6.0
 
 `Trajectory`, `DecidesActionsAndWritesToTheLogbook` and `Underway` move
