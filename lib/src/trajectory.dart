@@ -400,14 +400,23 @@ Future<Outcome<ModelReply>> _ask(
 }
 
 /// [name]'s value in [headers], matched without regard to case, as HTTP
-/// header names are; null when [headers] has none. A request draws its own
-/// headers once each (is_effects' [ProposedRequest]), so there is never a
-/// second one to merge.
+/// header names are; null when [headers] has none, or more than one does.
+/// `ProposedRequest`'s own validation (is_effects' `validatedHeaders`)
+/// checks each name against the credential list, never against each
+/// other, so a request can draw `content-type` and `Content-Type` as two
+/// distinct map entries with different values; whichever the sending
+/// driver keeps is never this map's first entry to say, so an ambiguous
+/// header must read as none at all, not as a guess.
 String? _header(Map<String, String> headers, String name) {
+  String? found;
+  var matches = 0;
   for (final MapEntry(key: key, value: value) in headers.entries) {
-    if (key.toLowerCase() == name.toLowerCase()) return value;
+    if (key.toLowerCase() == name.toLowerCase()) {
+      found = value;
+      matches++;
+    }
   }
-  return null;
+  return matches == 1 ? found : null;
 }
 
 /// The body of [entry], which must belong to [trajectory] and be of [kind],

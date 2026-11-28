@@ -87,6 +87,7 @@ final class _FakePinnedBodyReplies implements WritesPinnedBodyReplyRequests {
     this.addresses,
     this.bodyFor, {
     this.contentType = 'application/json',
+    this.extraHeaders = const {},
   });
 
   @override
@@ -94,6 +95,12 @@ final class _FakePinnedBodyReplies implements WritesPinnedBodyReplyRequests {
 
   final String Function(ReplyContent content) bodyFor;
   final String contentType;
+
+  /// Headers beside `content-type`, with its own exact casing: a test can
+  /// draw a second name that only folds to `content-type` under
+  /// case-insensitive matching, which `ProposedRequest` itself never
+  /// refuses.
+  final Map<String, String> extraHeaders;
 
   @override
   List<ProposedRequest> draw(
@@ -105,7 +112,7 @@ final class _FakePinnedBodyReplies implements WritesPinnedBodyReplyRequests {
       to.origin,
       method: Method.post,
       path: to.path,
-      headers: {'content-type': contentType},
+      headers: {'content-type': contentType, ...extraHeaders},
       body: bodyFor(content),
     ),
   ];
@@ -663,6 +670,66 @@ void main() {
             ServerAssignedMessageId.parse('msg-2')!,
           ),
         ],
+      );
+    },
+  );
+
+  test(
+    'a ReplyToOwnConversation to a pinned-body endpoint is refused when the '
+    "writer's drawn request carries two headers that both fold to "
+    'content-type, even though one of them alone would admit the body',
+    () async {
+      final endpoint = RepliesWithPinnedBodyFields.at(
+        origin: Origin.parse('https://slack.com')!,
+        path: WebPath.parse('/api/chat.postMessage')!,
+        pinned: PinnedBodyFields.of({'channel': 'C1234567'})!,
+      )!;
+      final signIn = SignIn.parse('bot-sign-in')!;
+      final a = airlock(
+        decide: (trajectory, reach, rules) => switch (reach) {
+          RepliesToOwnConversation() => Allow.toReplyTo(
+            endpoint,
+            asSignIn: signIn,
+            by: DecidedBy.rules,
+          ),
+          _ => const Allow.withNoPaths(by: DecidedBy.rules),
+        },
+      );
+      final trajectory = path(
+        a,
+        pinnedBodyReplies: PinnedBodyReplyWriters.of([
+          _FakePinnedBodyReplies(
+            {(origin: endpoint.origin, path: endpoint.path)},
+            (content) => jsonEncode({
+              'channel': 'C1234567',
+              'text': content.text.value,
+            }),
+            // The admitted name: on its own, this body and content-type
+            // would pass admitsBody.
+            contentType: 'application/json',
+            // A second name that only folds to `content-type` under
+            // case-insensitive matching — `ProposedRequest` doesn't refuse
+            // this, since `validatedHeaders` only checks names against the
+            // credential list, never against each other.
+            extraHeaders: const {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+          ),
+        ]),
+        onSend: (request) {
+          fail('must not send: the request names content-type twice');
+        },
+      );
+
+      final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
+        ReplyContent(text: ReplyText.parse('hi')!),
+        then: Done.new,
+      );
+      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
+      expect(sent.value, isA<NothingRan>());
+      expect(
+        (sent.value as NothingRan).why,
+        contains("is not the reply endpoint's conversation"),
       );
     },
   );
