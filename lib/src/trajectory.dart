@@ -8,11 +8,16 @@ import 'dart:async';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart';
-import 'package:is_effects/is_effects.dart';
-import 'package:is_model_vocabulary/is_model_vocabulary.dart' show ModelReply;
+import 'package:is_file_request_vocabulary/is_file_request_vocabulary.dart';
+import 'package:is_model_vocabulary/is_model_vocabulary.dart'
+    show AsksTheModel, ModelReply, ReplyArriving;
+import 'package:is_outcome_vocabulary/is_outcome_vocabulary.dart';
+import 'package:is_program_request_vocabulary/is_program_request_vocabulary.dart';
+import 'package:is_relative_path_vocabulary/is_relative_path_vocabulary.dart';
 import 'package:is_sign_in_vocabulary/is_sign_in_vocabulary.dart' show SignIn;
 import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'
     show Origin, WebPath;
+import 'package:is_web_request_vocabulary/is_web_request_vocabulary.dart';
 
 /// Decides each action on a trajectory, and writes its decision to the
 /// logbook.
@@ -70,13 +75,13 @@ abstract interface class DecidesActionsAndWritesToTheLogbook<R, P> {
 final class Trajectory<R, P> {
   Trajectory({
     required this.id,
-    required Iterable<CarriesOutActions> drivers,
+    required this._drivers,
     required this._airlock,
     required this.rules,
     required this.suit,
     this._webAddressReplies,
     this._pinnedBodyReplies,
-  }) : _drivers = List.unmodifiable(drivers);
+  });
 
   final WritesReplyRequests<RepliesUnderWebAddress>? _webAddressReplies;
   final PinnedBodyReplyWriters? _pinnedBodyReplies;
@@ -91,7 +96,7 @@ final class Trajectory<R, P> {
   final Suit suit;
 
   final DecidesActionsAndWritesToTheLogbook<R, P> _airlock;
-  final List<CarriesOutActions> _drivers;
+  final Drivers _drivers;
   final _decisions = StreamController<AirlockDecisionOnAction<P>>.broadcast(
     sync: true,
   );
@@ -120,9 +125,6 @@ final class Trajectory<R, P> {
   /// What drivers report while actions are underway: for a live view, and
   /// never written to the logbook.
   Stream<Underway<P>> get underway => _underway.stream;
-
-  D? _driver<D extends CarriesOutActions>() =>
-      _drivers.whereType<D>().firstOrNull;
 
   Future<Outcome<O>> _consider<I, O>(
     Program<I, O> program,
@@ -213,8 +215,36 @@ final class Underway<P> {
   final TrajectoryId trajectoryId;
   final P place;
   final Reach reach;
-  final Progress progress;
+  final DriverProgress progress;
 }
+
+/// What a driver reported while an action was underway: a program's
+/// [Printed] line, or a model's [ReplyArriving] piece.
+sealed class DriverProgress {
+  const DriverProgress();
+}
+
+final class ProgramPrinted extends DriverProgress {
+  const ProgramPrinted(this.printed);
+
+  final Printed printed;
+}
+
+final class ModelReplyArriving extends DriverProgress {
+  const ModelReplyArriving(this.piece);
+
+  final ReplyArriving piece;
+}
+
+/// The drivers that carry out a trajectory's actions, one named slot per
+/// kind: at most one driver of each, so two of one kind can never be given
+/// together.
+typedef Drivers = ({
+  ReadsAndWritesFiles? files,
+  RunsPrograms? programs,
+  CarriesOutWebRequests? web,
+  AsksTheModel? model,
+});
 
 /// [CarriesOutEachProgram] for one decided, allowed action on [_trajectory]:
 /// built fresh per [Trajectory._consider] call, since the contract's
@@ -224,32 +254,32 @@ final class _ProgramsFor implements CarriesOutEachProgram {
 
   final Trajectory<Object?, Object?> _trajectory;
   final Allow _allowed;
-  final void Function(Progress progress) _report;
+  final void Function(DriverProgress progress) _report;
 
   @override
   Future<Outcome<ReadResult>>? readFile(RelativePath path) =>
-      _trajectory._driver<ReadsAndWritesFiles>()?.read(path);
+      _trajectory._drivers.files?.read(path);
 
   @override
   Future<Outcome<BytesReadResult>>? readFileBytes(RelativePath path) =>
-      _trajectory._driver<ReadsAndWritesFiles>()?.readBytes(path);
+      _trajectory._drivers.files?.readBytes(path);
 
   @override
   Future<Outcome<Wrote>>? writeFile(FileText file) =>
-      _trajectory._driver<ReadsAndWritesFiles>()?.write(file);
+      _trajectory._drivers.files?.write(file);
 
   @override
   Future<Outcome<ExecResult>>? runExecutable(ProgramName program, Args args) =>
-      _trajectory._driver<RunsPrograms>()?.runProgram(
+      _trajectory._drivers.programs?.runProgram(
         program,
         args,
-        report: _report,
+        report: (printed) => _report(ProgramPrinted(printed)),
       );
 
   @override
   Future<Outcome<List<WebResponse>>>? makeWebRequests(
     List<ProposedRequest> requests,
-  ) => switch (_trajectory._driver<CarriesOutWebRequests>()) {
+  ) => switch (_trajectory._drivers.web) {
     null => null,
     final web => switch (_granted(requests, _allowed)) {
       NothingRan(:final why) ||
@@ -260,7 +290,7 @@ final class _ProgramsFor implements CarriesOutEachProgram {
 
   @override
   Future<Outcome<WebResponse>>? fetchFromWeb(WebFetch fetch) =>
-      switch (_trajectory._driver<CarriesOutWebRequests>()) {
+      switch (_trajectory._drivers.web) {
         null => null,
         final web => switch (_granted([
           ProposedRequest(
@@ -277,8 +307,8 @@ final class _ProgramsFor implements CarriesOutEachProgram {
       };
 
   @override
-  Future<Outcome<ModelReply>>? askTheModel(ModelCall call) =>
-      switch (_trajectory._driver<AsksTheModel>()) {
+  Future<Outcome<ModelReply>>? askTheModel(ModelCallNamingRequestEntry call) =>
+      switch (_trajectory._drivers.model) {
         null => null,
         final driver => _ask(driver, _trajectory, call, _report),
       };
@@ -286,10 +316,7 @@ final class _ProgramsFor implements CarriesOutEachProgram {
   @override
   Future<Outcome<List<PostedMessage>>>? replyToOwnConversation(
     ReplyContent content,
-  ) => switch ((
-    _allowed.grantedReply,
-    _trajectory._driver<CarriesOutWebRequests>(),
-  )) {
+  ) => switch ((_allowed.grantedReply, _trajectory._drivers.web)) {
     (null, _) => Future.value(const NothingRan('allowed with no reply granted')),
     (_, null) => null,
     ((to: final RepliesUnderWebAddress to, :final asSignIn), final web?) =>
@@ -358,8 +385,8 @@ final class PinnedBodyReplyWriters {
 Future<Outcome<ModelReply>> _ask(
   AsksTheModel driver,
   Trajectory<Object?, Object?> trajectory,
-  ModelCall call,
-  void Function(Progress progress) report,
+  ModelCallNamingRequestEntry call,
+  void Function(DriverProgress progress) report,
 ) async {
   final ModelRequestFromPieces request;
   switch (await _bodyOf(trajectory, call.request, ModelRequestFromPieces.kind)) {
@@ -395,18 +422,23 @@ Future<Outcome<ModelReply>> _ask(
     (NothingRan(:final why) || StoppedPartway(:final why), _) ||
     (_, NothingRan(:final why) || StoppedPartway(:final why)) => NothingRan(why),
     (Ran(output: final system), Ran(output: final text)) => await driver
-        .askTheModel(call.signIn, call.model, system, text, report: report),
+        .askTheModel(
+          call.signIn,
+          call.model,
+          system,
+          text,
+          report: (piece) => report(ModelReplyArriving(piece)),
+        ),
   };
 }
 
 /// [name]'s value in [headers], matched without regard to case, as HTTP
 /// header names are; null when [headers] has none, or more than one does.
-/// `ProposedRequest`'s own validation (is_effects' `validatedHeaders`)
-/// checks each name against the credential list, never against each
-/// other, so a request can draw `content-type` and `Content-Type` as two
-/// distinct map entries with different values; whichever the sending
-/// driver keeps is never this map's first entry to say, so an ambiguous
-/// header must read as none at all, not as a guess.
+/// `ProposedRequest`'s own constructor (is_web_request_vocabulary 0.1.1's
+/// `validatedHeaders`) already refuses two names that fold to the same one,
+/// so this is a second line of defence, not the only one: whichever the
+/// sending driver would keep is never this map's first entry to say, so an
+/// ambiguous header must read as none at all, not as a guess.
 String? _header(Map<String, String> headers, String name) {
   String? found;
   var matches = 0;

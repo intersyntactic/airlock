@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:is_effects/is_effects.dart';
+import 'package:is_outcome_vocabulary/is_outcome_vocabulary.dart';
+import 'package:is_program_request_vocabulary/is_program_request_vocabulary.dart';
 
 import 'driver_release.dart';
 
@@ -66,7 +67,7 @@ final class ProgramDriverSocket implements RunsPrograms, ListsInstalledPrograms 
   Future<Outcome<ExecResult>> runProgram(
     ProgramName program,
     Args args, {
-    required Report report,
+    required void Function(Printed printed) report,
   }) async {
     final Socket s;
     try {
@@ -92,7 +93,11 @@ final class ProgramDriverSocket implements RunsPrograms, ListsInstalledPrograms 
       await for (final line
           in utf8.decoder.bind(s).transform(const LineSplitter())) {
         lastLine = line;
-        switch (decodeProgramMessage(jsonDecode(line), decodeExecResult)) {
+        switch (decodeProgramMessage(
+          jsonDecode(line),
+          decodePrinted,
+          decodeExecResult,
+        )) {
           case Reported(:final progress):
             report(progress);
           case Finished(:final outcome):

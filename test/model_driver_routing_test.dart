@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:is_airlock/is_airlock.dart';
-import 'package:is_model_vocabulary/is_model_vocabulary.dart'
-    show FinishedReply, ModelReply;
 import 'package:test/test.dart';
 
 /// An [AsksTheModel] that answers every call the same way, so a test can
@@ -21,7 +19,7 @@ final class _FakeDriver implements AsksTheModel {
     ModelName model,
     String systemPrompt,
     String request, {
-    required Report report,
+    required void Function(ReplyArriving piece) report,
   }) async {
     calledAs = signIn;
     return Ran(FinishedReply(text: reply));
@@ -161,16 +159,24 @@ void main() {
     test('reports progress as it streams, before returning the outcome', () async {
       final reportedBeforeReturn = Completer<bool>();
       var reported = false;
+      Object? encodeReplyArriving(ReplyArriving piece) => piece.toJson();
+      Object? encodeModelReply(ModelReply reply) => reply.toJson();
       final socket = await serverWriting([
         jsonEncode(
           encodeProgramMessage(
-            Reported<ModelReply>(const ReplyArriving('partial')),
+            Reported<ReplyArriving, ModelReply>(
+              const ReplyArriving('partial'),
+            ),
+            encodeReplyArriving,
             encodeModelReply,
           ),
         ),
         jsonEncode(
           encodeProgramMessage(
-            Finished<ModelReply>(Ran(FinishedReply(text: 'done'))),
+            Finished<ReplyArriving, ModelReply>(
+              Ran(FinishedReply(text: 'done')),
+            ),
+            encodeReplyArriving,
             encodeModelReply,
           ),
         ),
@@ -182,7 +188,7 @@ void main() {
         'system',
         'request',
         report: (progress) {
-          reportedBeforeReturn.complete(progress is ReplyArriving);
+          reportedBeforeReturn.complete(true);
         },
       );
 

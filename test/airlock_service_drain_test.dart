@@ -212,7 +212,7 @@ void main() {
       final serviceDone = runAirlockService(
         subscribe: () => LogbookReader(harness.readSocketPath!).subscribe(),
         airlock: airlock,
-        drivers: const [],
+        drivers: const (files: null, programs: null, web: null, model: null),
         proposalsEnabled: true,
         entryIndex: entryIndex,
         writeRejection: airlock.writeRejection,

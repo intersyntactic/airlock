@@ -250,7 +250,7 @@ void main() {
         runAirlockService(
           subscribe: () => LogbookReader(harness.readSocketPath!).subscribe(),
           airlock: airlock,
-          drivers: const [],
+          drivers: const (files: null, programs: null, web: null, model: null),
           proposalsEnabled: true,
           entryIndex: entryIndex,
           writeRejection: airlock.writeRejection,
@@ -265,9 +265,9 @@ void main() {
         answer!.result,
         (json, field) => decodeReadResult(json, field),
       );
-      // No real ReadsAndWritesFiles driver is wired tonight (drivers: const
-      // []): the proposal is still decided, written and answered, but with
-      // nothing able to carry it out.
+      // No real ReadsAndWritesFiles driver is wired tonight (every slot of
+      // drivers is null): the proposal is still decided, written and
+      // answered, but with nothing able to carry it out.
       expect(outcome, isA<NothingRan>());
     },
   );
@@ -318,7 +318,7 @@ void main() {
         runAirlockService(
           subscribe: () => LogbookReader(harness.readSocketPath!).subscribe(),
           airlock: airlock,
-          drivers: const [],
+          drivers: const (files: null, programs: null, web: null, model: null),
           proposalsEnabled: true,
           entryIndex: entryIndex,
           writeRejection: airlock.writeRejection,
@@ -364,7 +364,7 @@ void main() {
         runAirlockService(
           subscribe: () => LogbookReader(harness.readSocketPath!).subscribe(),
           airlock: airlock,
-          drivers: const [],
+          drivers: const (files: null, programs: null, web: null, model: null),
           proposalsEnabled: false,
           entryIndex: entryIndex,
           writeRejection: airlock.writeRejection,
@@ -452,7 +452,7 @@ void main() {
             const CaughtUp(null),
           ]),
           airlock: airlock,
-          drivers: const [],
+          drivers: const (files: null, programs: null, web: null, model: null),
           proposalsEnabled: true,
           entryIndex: entryIndex,
           writeRejection: airlock.writeRejection,
@@ -512,7 +512,7 @@ void main() {
             yield* LogbookReader(harness.readSocketPath!).subscribe();
           },
           airlock: airlock,
-          drivers: const [],
+          drivers: const (files: null, programs: null, web: null, model: null),
           proposalsEnabled: true,
           entryIndex: entryIndex,
           writeRejection: airlock.writeRejection,
@@ -576,7 +576,7 @@ void main() {
         runAirlockService(
           subscribe: () => Stream.fromIterable([admitted, const CaughtUp(null)]),
           airlock: airlock,
-          drivers: const [],
+          drivers: const (files: null, programs: null, web: null, model: null),
           proposalsEnabled: true,
           entryIndex: entryIndex,
           writeRejection: airlock.writeRejection,
@@ -647,7 +647,7 @@ void main() {
         runAirlockService(
           subscribe: () => Stream.fromIterable([admitted, const CaughtUp(null)]),
           airlock: airlock,
-          drivers: const [],
+          drivers: const (files: null, programs: null, web: null, model: null),
           proposalsEnabled: true,
           entryIndex: entryIndex,
           writeRejection: airlock.writeRejection,
@@ -754,7 +754,7 @@ void main() {
             yield admitted;
           },
           airlock: airlock,
-          drivers: const [],
+          drivers: const (files: null, programs: null, web: null, model: null),
           proposalsEnabled: true,
           entryIndex: entryIndex,
           writeRejection: airlock.writeRejection,
@@ -856,7 +856,7 @@ void main() {
             yield closed;
           },
           airlock: airlock,
-          drivers: const [],
+          drivers: const (files: null, programs: null, web: null, model: null),
           proposalsEnabled: true,
           entryIndex: entryIndex,
           writeRejection: airlock.writeRejection,

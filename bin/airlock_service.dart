@@ -126,16 +126,18 @@ Future<void> main() async {
   await runAirlockService(
     subscribe: () => LogbookReader(logbookReadSocket).subscribe(),
     airlock: airlock,
-    drivers: [
-      WebRequestDriverSocket(
+    drivers: (
+      files: null,
+      programs: null,
+      web: WebRequestDriverSocket(
         File(webDriverSocket),
         checkDriver: checkDriverRelease(
           expectedUser: webDriverUser,
           expected: webDriverRelease.release,
         ),
       ),
-      modelDriver,
-    ],
+      model: modelDriver,
+    ),
     proposalsEnabled: proposalsEnabled,
     entryIndex: entryIndex,
     writeRejection: airlock.writeRejection,

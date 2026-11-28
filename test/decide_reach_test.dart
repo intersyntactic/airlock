@@ -422,7 +422,7 @@ void main() {
         decideReach(
           _trajectory,
           CallsTheModel(
-            ModelCall(
+            ModelCallNamingRequestEntry(
               signIn: ModelSignInName.parse('cam-teams')!,
               model: ModelName.parse('claude-opus-5-5')!,
               request: EntryId.of(Uint8List.fromList([1])),
@@ -436,7 +436,7 @@ void main() {
         decideReach(
           _trajectory,
           CallsTheModel(
-            ModelCall(
+            ModelCallNamingRequestEntry(
               signIn: ModelSignInName.parse('nick-claude-team')!,
               model: ModelName.parse('claude-opus-5-5')!,
               request: EntryId.of(Uint8List.fromList([1])),

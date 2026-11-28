@@ -22,7 +22,8 @@ import 'package:is_airlock_api/is_airlock_api.dart'
         TrajectoryId,
         readOutcomeOfProposedAction,
         outcomeOfProposedActionKind;
-import 'package:is_effects/is_effects.dart' show NothingRan, Outcome, Ran;
+import 'package:is_outcome_vocabulary/is_outcome_vocabulary.dart'
+    show NothingRan, Outcome, Ran;
 import 'package:is_logbook_client/is_logbook_client.dart' show ObjectId;
 
 final class _Indexed {
