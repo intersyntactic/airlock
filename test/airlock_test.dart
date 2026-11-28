@@ -218,10 +218,12 @@ void main() {
     PinnedBodyReplyWriters? pinnedBodyReplies,
   }) => Trajectory<String, int>(
     id: _id('conv-1'),
-    drivers: [
-      _FakeFileDriver(),
-      _FakeWebDriver(onSend ?? (request) => const NothingRan('no onSend given')),
-    ],
+    drivers: (
+      files: _FakeFileDriver(),
+      programs: null,
+      web: _FakeWebDriver(onSend ?? (request) => const NothingRan('no onSend given')),
+      model: null,
+    ),
     airlock: a,
     rules: rules,
     suit: Suit.parse('suit-1')!,
@@ -675,9 +677,11 @@ void main() {
   );
 
   test(
-    'a ReplyToOwnConversation to a pinned-body endpoint is refused when the '
-    "writer's drawn request carries two headers that both fold to "
-    'content-type, even though one of them alone would admit the body',
+    'a ReplyToOwnConversation records StoppedPartway and propagates the '
+    "throw when a writer's draw tries to build a request with two headers "
+    'that fold to content-type, even though one of them alone would admit '
+    'the body — ProposedRequest refuses that itself now, same as any other '
+    'driver bug',
     () async {
       final endpoint = RepliesWithPinnedBodyFields.at(
         origin: Origin.parse('https://slack.com')!,
@@ -708,9 +712,12 @@ void main() {
             // would pass admitsBody.
             contentType: 'application/json',
             // A second name that only folds to `content-type` under
-            // case-insensitive matching — `ProposedRequest` doesn't refuse
-            // this, since `validatedHeaders` only checks names against the
-            // credential list, never against each other.
+            // case-insensitive matching — `ProposedRequest`'s own
+            // constructor refuses building a request with two such names,
+            // so `draw` itself throws before this ever reaches `_header`'s
+            // match-count defence. An ArgumentError is a bug signal, never
+            // caught here (`avoid_catching_errors`): it propagates the same
+            // way any other driver throw does.
             extraHeaders: const {
               'Content-Type': 'application/x-www-form-urlencoded',
             },
@@ -725,12 +732,14 @@ void main() {
         ReplyContent(text: ReplyText.parse('hi')!),
         then: Done.new,
       );
-      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
-      expect(sent.value, isA<NothingRan>());
-      expect(
-        (sent.value as NothingRan).why,
-        contains("is not the reply endpoint's conversation"),
+      await expectLater(run.next(at(trajectory, 1)), throwsArgumentError);
+
+      final lines = _entries(harness.journalDir).map(utf8.decode).toList();
+      final resultLine = lines.firstWhere(
+        (l) => l.startsWith('$outcomeOfProposedActionKind\n'),
       );
+      expect(resultLine, contains('"stoppedPartway"'));
+      expect(resultLine, contains('the driver threw'));
     },
   );
 

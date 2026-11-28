@@ -1,11 +1,12 @@
 import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart'
     show ReplyEndpoint;
-import 'package:is_effects/is_effects.dart';
 import 'package:is_flight_rules/is_flight_rules.dart';
 import 'package:is_sign_in_vocabulary/is_sign_in_vocabulary.dart' show SignIn;
 import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'
     show Origin, PathPrefix, WebPath;
+import 'package:is_web_request_vocabulary/is_web_request_vocabulary.dart'
+    show ProposedRequest;
 
 /// Every production grant the airlock service makes, under the rules given
 /// to [decide] and the replyEndpoint [noteReplyEndpoint] recorded for the

@@ -33,7 +33,6 @@ import 'package:is_docking_station_api/path_start.dart'
         EntryStartsNoTrajectory,
         UnreadableTrajectoryEntry,
         readTrajectoryStart;
-import 'package:is_effects/is_effects.dart';
 import 'package:is_flight_rules/is_flight_rules.dart';
 import 'package:is_logbook_client/is_logbook_client.dart'
     show CaughtUp, Entry, Kind, ObjectId, Subscribed;
@@ -194,7 +193,7 @@ Future<void> runAirlockService({
   required Stream<Subscribed> Function() subscribe,
   required DecidesActionsAndWritesToTheLogbook<FlightRules, PlaceInTrajectory>
   airlock,
-  required Iterable<CarriesOutActions> drivers,
+  required Drivers drivers,
   required bool proposalsEnabled,
   required EntryIndex entryIndex,
   required Future<void> Function(EntryId proposed, String why) writeRejection,

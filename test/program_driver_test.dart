@@ -66,10 +66,10 @@ void main() {
       });
 
       test('reports progress, then returns the Finished outcome', () async {
-        final progress = <Progress>[];
+        final progress = <Printed>[];
         final socket = await serverAnswering(
-          '${jsonEncode(encodeProgramMessage(const Reported<ExecResult>(Printed(Channel.stdout, 'on branch main')), encodeExecResult))}\n'
-          '${jsonEncode(encodeProgramMessage(Finished<ExecResult>(Ran(const Exited(0, stdout: 'on branch main', stderr: ''))), encodeExecResult))}\n',
+          '${jsonEncode(encodeProgramMessage(const Reported<Printed, ExecResult>(Printed(Channel.stdout, 'on branch main')), encodePrinted, encodeExecResult))}\n'
+          '${jsonEncode(encodeProgramMessage(Finished<Printed, ExecResult>(Ran(const Exited(0, stdout: 'on branch main', stderr: ''))), encodePrinted, encodeExecResult))}\n',
         );
 
         final result = await ProgramDriverSocket(

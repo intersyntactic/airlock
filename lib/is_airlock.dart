@@ -22,13 +22,18 @@ library;
 // A caller can't build an Airlock without writing `decide`, which
 // returns a Decision (Allow, Deny, DecidedBy) over a Reach — so these are
 // part of Airlock's interface in practice, not just its own. Dart
-// only lets a caller import its own direct dependencies, and is_airlock_api
-// and is_effects are pinned here for reasons specific to this repo (see
+// only lets a caller import its own direct dependencies, and these
+// packages are pinned here for reasons specific to this repo (see
 // pubspec.yaml); re-exporting them keeps a caller from having to repeat
 // that pin itself, with the two drifting apart if it ever changes here.
 export 'package:is_airlock_api/is_airlock_api.dart';
-export 'package:is_effects/is_effects.dart';
 export 'package:is_flight_rules/is_flight_rules.dart';
+export 'package:is_file_request_vocabulary/is_file_request_vocabulary.dart';
+export 'package:is_model_vocabulary/is_model_vocabulary.dart';
+export 'package:is_outcome_vocabulary/is_outcome_vocabulary.dart';
+export 'package:is_program_request_vocabulary/is_program_request_vocabulary.dart';
+export 'package:is_relative_path_vocabulary/is_relative_path_vocabulary.dart';
+export 'package:is_web_request_vocabulary/is_web_request_vocabulary.dart';
 
 export 'src/airlock.dart';
 export 'src/airlock_subscriber.dart';

@@ -3,13 +3,20 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checked_json/checked_json.dart';
-import 'package:is_effects/is_effects.dart';
-import 'package:is_model_vocabulary/is_model_vocabulary.dart' show ModelReply;
+import 'package:is_model_vocabulary/is_model_vocabulary.dart'
+    show
+        AsksTheModel,
+        ModelCall,
+        ModelName,
+        ModelReply,
+        ModelSignInName,
+        ReplyArriving;
+import 'package:is_outcome_vocabulary/is_outcome_vocabulary.dart';
 
 import 'driver_release.dart';
 
 /// [AsksTheModel] in another process, over the wire every model driver
-/// shares (`is_effects`' own `encodeModelCall`/`decodeProgramMessage`):
+/// shares (`ModelCall.toJson`/is_outcome_vocabulary's `decodeProgramMessage`):
 /// connects to [socket], runs [checkDriver] on the open connection before
 /// writing anything, sends the call, then reports each streamed message
 /// and returns the final one's outcome. Holds no secret.
@@ -39,7 +46,7 @@ final class ModelDriverSocket implements AsksTheModel {
     ModelName model,
     String systemPrompt,
     String request, {
-    required Report report,
+    required void Function(ReplyArriving piece) report,
   }) async {
     final Socket s;
     try {
@@ -58,14 +65,25 @@ final class ModelDriverSocket implements AsksTheModel {
     try {
       s.add(
         utf8.encode(
-          jsonEncode(encodeModelCall(signIn, model, systemPrompt, request)),
+          jsonEncode(
+            ModelCall(
+              signIn: signIn,
+              model: model,
+              systemPrompt: systemPrompt,
+              request: request,
+            ).toJson(),
+          ),
         ),
       );
       await s.close();
       await for (final line
           in utf8.decoder.bind(s).transform(const LineSplitter())) {
         lastLine = line;
-        switch (decodeProgramMessage(jsonDecode(line), decodeModelReply)) {
+        switch (decodeProgramMessage(
+          jsonDecode(line),
+          (json, field) => ReplyArriving.fromJson(json),
+          (json, field) => ModelReply.fromJson(json),
+        )) {
           case Reported(:final progress):
             report(progress);
           case Finished(:final outcome):
@@ -130,7 +148,7 @@ final class RoutesModelCallsBySignIn implements AsksTheModel {
     ModelName model,
     String systemPrompt,
     String request, {
-    required Report report,
+    required void Function(ReplyArriving piece) report,
   }) async {
     final driver = driversBySignIn[signIn];
     if (driver == null) return NothingRan('no model driver for sign-in $signIn');

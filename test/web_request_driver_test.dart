@@ -94,7 +94,7 @@ void main() {
     });
 
     test(
-      'an answer from before is_effects\' own wire format is undecodable, '
+      'an answer from before the current wire format is undecodable, '
       'and the request may already have gone out, so it is StoppedPartway '
       'with done: null, never Refused or NothingRan',
       () async {

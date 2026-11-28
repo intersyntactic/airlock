@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import 'package:is_airlock_api/is_airlock_api.dart';
-import 'package:is_effects/is_effects.dart';
+import 'package:is_outcome_vocabulary/is_outcome_vocabulary.dart';
+import 'package:is_web_request_vocabulary/is_web_request_vocabulary.dart'
+    show ProposedRequest;
 
 import 'logbook_client.dart';
 import 'trajectory.dart';
