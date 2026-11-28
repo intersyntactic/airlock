@@ -143,17 +143,16 @@ Future<void> main() async {
     say: stderr.writeln,
     onTrajectoryStarted: grants.noteReplyEndpoint,
     // No writer wired for either reply kind: the airlock depends on no
-    // `*_module` package (Nick's ruling, 28 Nov — a module writes its own
-    // reply requests against is_airlock_api's WritesReplyRequests, outside
-    // this process; where that code runs is still open). Teams' own
-    // replies are unaffected — they go through agent_loop's
-    // teams-reply-drawing and the ordinary MakesWebRequests grant, never
-    // through this path.
+    // `*_module` package — a module writes its own reply requests against
+    // is_airlock_api's WritesReplyRequests, outside this process; where
+    // that code runs is still open. Teams' own replies are unaffected —
+    // they go through agent_loop's teams-reply-drawing and the ordinary
+    // MakesWebRequests grant, never through this path.
     //
     // When pinned-body writers are wired here, build their collection as
     // `PinnedBodyReplyWriters.of(writers) ?? (throw StateError('two reply
     // writers claim one address'))` — a collision must stop the service,
-    // not silently turn pinned replies off (airlock-api-b2, 28 Nov).
+    // not silently turn pinned replies off.
   );
 }
 
