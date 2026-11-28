@@ -26,7 +26,7 @@ import 'dart:typed_data';
 import 'package:async/async.dart' show StreamGroup;
 import 'package:is_airlock_api/is_airlock_api.dart';
 import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart'
-    show ReplyEndpoint;
+    show ReplyEndpoint, RepliesUnderWebAddress;
 import 'package:is_docking_station_api/path_start.dart'
     show
         EntryStartsTrajectory,
@@ -202,8 +202,8 @@ Future<void> runAirlockService({
   required void Function(String line) say,
   void Function(TrajectoryId trajectory, ReplyEndpoint? replyEndpoint)?
   onTrajectoryStarted,
-  WritesSlackReplyRequests? slackReplies,
-  WritesWebAddressReplyRequests? webAddressReplies,
+  WritesReplyRequests<RepliesUnderWebAddress>? webAddressReplies,
+  PinnedBodyReplyWriters? pinnedBodyReplies,
   Stream<void> drainOn = const _WatchesProcessSigterm(),
 }) async {
   final rulesOf = <TrajectoryId, FlightRules>{};
@@ -244,8 +244,8 @@ Future<void> runAirlockService({
       airlock: airlock,
       rules: rules,
       suit: suit,
-      slackReplies: slackReplies,
       webAddressReplies: webAddressReplies,
+      pinnedBodyReplies: pinnedBodyReplies,
     );
   }
 

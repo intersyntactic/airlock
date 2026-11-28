@@ -53,9 +53,10 @@ final class _FakeWebDriver implements CarriesOutWebRequests {
   ) async => onSend(request);
 }
 
-/// A [WritesWebAddressReplyRequests] that draws exactly one POST to [to]'s
+/// A [WritesReplyRequests] that draws exactly one POST to [to]'s
 /// address for [content]'s text, and reads the id a fake response names.
-final class _FakeWebAddressReplies implements WritesWebAddressReplyRequests {
+final class _FakeWebAddressReplies
+    implements WritesReplyRequests<RepliesUnderWebAddress> {
   @override
   List<ProposedRequest> draw(
     RepliesUnderWebAddress to,
@@ -67,6 +68,40 @@ final class _FakeWebAddressReplies implements WritesWebAddressReplyRequests {
       method: Method.post,
       path: WebPath.parse(to.prefix.pathPrefix.value)!,
       body: content.text.value,
+    ),
+  ];
+
+  @override
+  Outcome<ServerAssignedMessageId> posted(WebResponse response) =>
+      switch (response.created) {
+        final String id? => Ran(ServerAssignedMessageId.parse(id)!),
+        null => const NothingRan('no id in the response'),
+      };
+}
+
+/// A [WritesPinnedBodyReplyRequests] that draws exactly one POST to [to]'s
+/// address, with the body [bodyFor] gives for [content] — so a test can
+/// draw a body that does, or doesn't, admit the endpoint it was granted.
+final class _FakePinnedBodyReplies implements WritesPinnedBodyReplyRequests {
+  _FakePinnedBodyReplies(this.addresses, this.bodyFor);
+
+  @override
+  final Set<({Origin origin, WebPath path})> addresses;
+
+  final String Function(ReplyContent content) bodyFor;
+
+  @override
+  List<ProposedRequest> draw(
+    RepliesWithPinnedBodyFields to,
+    TrajectoryId trajectory,
+    ReplyContent content,
+  ) => [
+    ProposedRequest(
+      to.origin,
+      method: Method.post,
+      path: to.path,
+      headers: const {'content-type': 'application/json'},
+      body: bodyFor(content),
     ),
   ];
 
@@ -167,7 +202,8 @@ void main() {
     Airlock<String, int> a, {
     String rules = 'rules',
     Outcome<WebResponse> Function(GrantedRequest request)? onSend,
-    WritesWebAddressReplyRequests? webAddressReplies,
+    WritesReplyRequests<RepliesUnderWebAddress>? webAddressReplies,
+    PinnedBodyReplyWriters? pinnedBodyReplies,
   }) => Trajectory<String, int>(
     id: _id('conv-1'),
     drivers: [
@@ -178,6 +214,7 @@ void main() {
     rules: rules,
     suit: Suit.parse('suit-1')!,
     webAddressReplies: webAddressReplies,
+    pinnedBodyReplies: pinnedBodyReplies,
   );
 
   /// A [ProposesActions] for one action at [place] on [trajectory], driving
@@ -484,10 +521,11 @@ void main() {
     'a ReplyToOwnConversation allowed with no writer for its endpoint '
     'runs nothing, as this machine cannot run it',
     () async {
-      final endpoint = RepliesInSlackConversation(
+      final endpoint = RepliesWithPinnedBodyFields.at(
         origin: Origin.parse('https://slack.com')!,
-        channel: SlackChannelId.parse('C1234567')!,
-      );
+        path: WebPath.parse('/api/chat.postMessage')!,
+        pinned: PinnedBodyFields.of({'channel': 'C1234567'})!,
+      )!;
       final a = airlock(
         decide: (trajectory, reach, rules) => switch (reach) {
           RepliesToOwnConversation() => Allow.toReplyTo(
@@ -498,7 +536,7 @@ void main() {
           _ => const Allow.withNoPaths(by: DecidedBy.rules),
         },
       );
-      // No slackReplies writer passed to path(), so nothing can run this.
+      // No pinnedBodyReplies writer passed to path(), so nothing can run this.
       final trajectory = path(a);
 
       final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
@@ -510,6 +548,59 @@ void main() {
       expect(
         (sent.value as NothingRan).why,
         contains('this machine cannot run'),
+      );
+    },
+  );
+
+  test(
+    'a ReplyToOwnConversation to a pinned-body endpoint is refused when '
+    "the writer's drawn body does not carry its conversation's fields — a "
+    'wrong channel, same as an added reply_broadcast would be',
+    () async {
+      final endpoint = RepliesWithPinnedBodyFields.at(
+        origin: Origin.parse('https://slack.com')!,
+        path: WebPath.parse('/api/chat.postMessage')!,
+        pinned: PinnedBodyFields.of({'channel': 'C1234567'})!,
+      )!;
+      final signIn = SignIn.parse('bot-sign-in')!;
+      final a = airlock(
+        decide: (trajectory, reach, rules) => switch (reach) {
+          RepliesToOwnConversation() => Allow.toReplyTo(
+            endpoint,
+            asSignIn: signIn,
+            by: DecidedBy.rules,
+          ),
+          _ => const Allow.withNoPaths(by: DecidedBy.rules),
+        },
+      );
+      final trajectory = path(
+        a,
+        pinnedBodyReplies: PinnedBodyReplyWriters.of([
+          _FakePinnedBodyReplies(
+            {(origin: endpoint.origin, path: endpoint.path)},
+            // Wrong channel: the same shape of mistake as a drawing that
+            // adds reply_broadcast — a body that doesn't carry this
+            // endpoint's own conversation.
+            (content) => jsonEncode({
+              'channel': 'C_WRONG_CHANNEL',
+              'text': content.text.value,
+            }),
+          ),
+        ]),
+        onSend: (request) {
+          fail('must not send: the drawn body does not admit the endpoint');
+        },
+      );
+
+      final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
+        ReplyContent(text: ReplyText.parse('hi')!),
+        then: Done.new,
+      );
+      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
+      expect(sent.value, isA<NothingRan>());
+      expect(
+        (sent.value as NothingRan).why,
+        contains("is not the reply endpoint's conversation"),
       );
     },
   );

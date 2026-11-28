@@ -11,6 +11,8 @@ import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart';
 import 'package:is_effects/is_effects.dart';
 import 'package:is_model_vocabulary/is_model_vocabulary.dart' show ModelReply;
 import 'package:is_sign_in_vocabulary/is_sign_in_vocabulary.dart' show SignIn;
+import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'
+    show Origin, WebPath;
 
 /// Decides each action on a trajectory, and writes its decision to the
 /// logbook.
@@ -62,9 +64,9 @@ abstract interface class DecidesActionsAndWritesToTheLogbook<R, P> {
 /// it runs. They are reached only by an action proposed at its crux, so
 /// every such action passes its airlock.
 ///
-/// [slackReplies] and [webAddressReplies] are the modules' writers that
-/// draw a reply's web requests, for each kind of reply endpoint; a reply to
-/// an endpoint this trajectory has no writer for runs nothing.
+/// [webAddressReplies] and [pinnedBodyReplies] are the modules' writers
+/// that draw a reply's web requests, for each kind of reply endpoint; a
+/// reply to an endpoint this trajectory has no writer for runs nothing.
 final class Trajectory<R, P> {
   Trajectory({
     required this.id,
@@ -72,12 +74,12 @@ final class Trajectory<R, P> {
     required this._airlock,
     required this.rules,
     required this.suit,
-    this._slackReplies,
     this._webAddressReplies,
+    this._pinnedBodyReplies,
   }) : _drivers = List.unmodifiable(drivers);
 
-  final WritesSlackReplyRequests? _slackReplies;
-  final WritesWebAddressReplyRequests? _webAddressReplies;
+  final WritesReplyRequests<RepliesUnderWebAddress>? _webAddressReplies;
+  final PinnedBodyReplyWriters? _pinnedBodyReplies;
 
   /// Names this trajectory in every entry written for it.
   final TrajectoryId id;
@@ -290,22 +292,10 @@ final class _ProgramsFor implements CarriesOutEachProgram {
   )) {
     (null, _) => Future.value(const NothingRan('allowed with no reply granted')),
     (_, null) => null,
-    ((to: final RepliesInSlackConversation to, :final asSignIn), final web?) =>
-      switch (_trajectory._slackReplies) {
-        null => null,
-        final writer => _postReply<SlackMessageTimestamp>(
-          to,
-          asSignIn,
-          writer.draw(to, _trajectory.id, content),
-          web,
-          writer.posted,
-          (timestamp) => PostedInSlackConversation.answering(to, timestamp),
-        ),
-      },
     ((to: final RepliesUnderWebAddress to, :final asSignIn), final web?) =>
       switch (_trajectory._webAddressReplies) {
         null => null,
-        final writer => _postReply<ServerAssignedMessageId>(
+        final writer => _postReply(
           to,
           asSignIn,
           writer.draw(to, _trajectory.id, content),
@@ -314,7 +304,50 @@ final class _ProgramsFor implements CarriesOutEachProgram {
           (id) => PostedUnderWebAddress.answering(to, id),
         ),
       },
+    ((to: final RepliesWithPinnedBodyFields to, :final asSignIn), final web?) =>
+      switch (_trajectory._pinnedBodyReplies?.writerFor(to)) {
+        null => null,
+        final writer => _postReply(
+          to,
+          asSignIn,
+          writer.draw(to, _trajectory.id, content),
+          web,
+          writer.posted,
+          (id) => PostedWithPinnedBodyFields.answering(to, id),
+        ),
+      },
   };
+}
+
+/// [writers], each claiming the addresses it writes replies to, so the
+/// airlock can pick the one writer for a [RepliesWithPinnedBodyFields]
+/// endpoint by its origin and path — several services can share this
+/// endpoint kind (Slack's and WhatsApp's both pin fields in the body,
+/// never the address).
+final class PinnedBodyReplyWriters {
+  const PinnedBodyReplyWriters._(this._byAddress);
+
+  final Map<({Origin origin, WebPath path}), WritesPinnedBodyReplyRequests>
+  _byAddress;
+
+  /// [writers] indexed by address; null when two name the same one, since
+  /// the airlock then has no way to pick between them.
+  static PinnedBodyReplyWriters? of(
+    Iterable<WritesPinnedBodyReplyRequests> writers,
+  ) {
+    final byAddress = <({Origin origin, WebPath path}), WritesPinnedBodyReplyRequests>{};
+    for (final writer in writers) {
+      for (final address in writer.addresses) {
+        if (byAddress.containsKey(address)) return null;
+        byAddress[address] = writer;
+      }
+    }
+    return PinnedBodyReplyWriters._(byAddress);
+  }
+
+  /// The writer for [to], when one claims its address; null otherwise.
+  WritesPinnedBodyReplyRequests? writerFor(RepliesWithPinnedBodyFields to) =>
+      _byAddress[(origin: to.origin, path: to.path)];
 }
 
 /// Asks [driver] the model [call] names, through [trajectory]'s own chain:
@@ -371,6 +404,17 @@ Future<Outcome<ModelReply>> _ask(
 /// [NothingRan] with why not, since a read leaves the world as it was. The
 /// kind is checked, since a loop may write a body of any shape under its
 /// own kinds on its own chain.
+/// [name]'s value in [headers], matched without regard to case, as HTTP
+/// header names are; null when [headers] has none. A request draws its own
+/// headers once each (is_effects' [ProposedRequest]), so there is never a
+/// second one to merge.
+String? _header(Map<String, String> headers, String name) {
+  for (final MapEntry(key: key, value: value) in headers.entries) {
+    if (key.toLowerCase() == name.toLowerCase()) return value;
+  }
+  return null;
+}
+
 Future<Outcome<String>> _bodyOf(
   Trajectory<Object?, Object?> trajectory,
   EntryId entry,
@@ -387,8 +431,13 @@ Future<Outcome<String>> _bodyOf(
 /// [signIn], in order, and reads what each posted with [posted], each id
 /// made a [PostedMessage] by [answer].
 ///
-/// Nothing is sent unless every request goes to an address [to] admits and
-/// names no sign-in of its own. It stops at the first request that did not
+/// Nothing is sent unless every request goes to an address [to] admits,
+/// names no sign-in of its own, and — for a [RepliesWithPinnedBodyFields],
+/// whose address alone never confines a reply to its conversation — has a
+/// body [to] admits too, read exactly as it will be sent: the request's own
+/// `content-type` header and its body bytes as text, never a re-encoded
+/// copy. A missing `content-type` is a refusal, the same as a body that
+/// doesn't admit: fail-closed. It stops at the first request that did not
 /// post: [NothingRan] when that was the first and the server said nothing
 /// posted; otherwise [StoppedPartway], with `done` the messages that
 /// posted, and its `why` naming a message whose fate is unknown.
@@ -408,6 +457,19 @@ Future<Outcome<List<PostedMessage>>> _postReply<Id>(
         '$at: ${request.origin}${request.path.value} is not the reply '
         "endpoint's address",
       );
+    }
+    if (to case RepliesWithPinnedBodyFields pinned) {
+      final contentType = _header(request.headers, 'content-type');
+      if (contentType == null ||
+          !pinned.admitsBody(
+            contentType: contentType,
+            body: request.body ?? '',
+          )) {
+        return NothingRan(
+          "$at: its content-type or body is not the reply endpoint's "
+          'conversation',
+        );
+      }
     }
     if (request.signIn != null) {
       return NothingRan('$at: names its own sign-in');

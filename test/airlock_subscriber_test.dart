@@ -5,11 +5,15 @@ import 'dart:typed_data';
 
 import 'package:is_airlock/is_airlock.dart';
 import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart'
-    show RepliesInSlackConversation, RepliesUnderWebAddress, ReplyEndpoint, SlackChannelId;
+    show
+        PinnedBodyFields,
+        RepliesUnderWebAddress,
+        RepliesWithPinnedBodyFields,
+        ReplyEndpoint;
 import 'package:is_logbook_client/is_logbook_client.dart';
 import 'package:is_shapes/is_shapes.dart' show MissionId;
 import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'
-    show AddressPrefix, Origin, PathPrefix;
+    show AddressPrefix, Origin, PathPrefix, WebPath;
 import 'package:test/test.dart';
 
 import 'logbook_service_harness.dart';
@@ -663,9 +667,13 @@ void main() {
       expect(gotTrajectory, trajectoryId);
       expect(
         gotReplyEndpoint,
-        RepliesInSlackConversation(
+        RepliesWithPinnedBodyFields.at(
           origin: Origin.parse('https://slack.com')!,
-          channel: SlackChannelId.parse('C1234567')!,
+          path: WebPath.parse('/api/chat.postMessage')!,
+          pinned: PinnedBodyFields.of(
+            {'channel': 'C1234567'},
+            mustBeAbsent: const {'thread_ts'},
+          )!,
         ),
       );
     },
