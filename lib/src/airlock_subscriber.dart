@@ -25,8 +25,8 @@ import 'dart:typed_data';
 
 import 'package:async/async.dart' show StreamGroup;
 import 'package:is_airlock_api/is_airlock_api.dart';
-import 'package:is_conversation_reply_vocabulary/is_conversation_reply_vocabulary.dart'
-    show RepliesInSlackConversation, RepliesUnderWebAddress;
+import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart'
+    show ReplyEndpoint, RepliesUnderWebAddress;
 import 'package:is_docking_station_api/path_start.dart'
     show
         EntryStartsTrajectory,
@@ -39,6 +39,7 @@ import 'package:is_logbook_client/is_logbook_client.dart'
     show CaughtUp, Entry, Kind, ObjectId, Subscribed;
 
 import 'entry_index.dart';
+import 'trajectory.dart';
 
 final _admittedKind = Kind.parse('event-admitted-to-mission')!;
 final _assignedKind = Kind.parse('users-assigned-to-trajectory')!;
@@ -199,8 +200,10 @@ Future<void> runAirlockService({
   required Future<void> Function(EntryId proposed, String why) writeRejection,
   required Future<void> Function(String line) writeLogbookEntry,
   required void Function(String line) say,
-  void Function(TrajectoryId trajectory, AddressPrefix? replyEndpoint)?
+  void Function(TrajectoryId trajectory, ReplyEndpoint? replyEndpoint)?
   onTrajectoryStarted,
+  WritesReplyRequests<RepliesUnderWebAddress>? webAddressReplies,
+  PinnedBodyReplyWriters? pinnedBodyReplies,
   Stream<void> drainOn = const _WatchesProcessSigterm(),
 }) async {
   final rulesOf = <TrajectoryId, FlightRules>{};
@@ -241,6 +244,8 @@ Future<void> runAirlockService({
       airlock: airlock,
       rules: rules,
       suit: suit,
+      webAddressReplies: webAddressReplies,
+      pinnedBodyReplies: pinnedBodyReplies,
     );
   }
 
@@ -365,14 +370,7 @@ Future<void> runAirlockService({
             replyEndpoint: final replyEndpoint,
           ):
             rulesOf[trajectoryId] = rules;
-            // ToOwnReplyEndpoint only ever matches a web address (task 75's
-            // Slack grant is still undesigned, and no live trajectory
-            // replies through Slack yet), so a Slack endpoint grants
-            // nothing here rather than being misread as one.
-            onTrajectoryStarted?.call(trajectoryId, switch (replyEndpoint) {
-              RepliesUnderWebAddress(:final prefix) => prefix,
-              RepliesInSlackConversation() || null => null,
-            });
+            onTrajectoryStarted?.call(trajectoryId, replyEndpoint);
             if (build(trajectoryId) != null) await releaseAwaiting(trajectoryId);
           case EntryStartsNoTrajectory<FlightRules>():
             break;

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:is_airlock/is_airlock.dart';
+import 'package:is_model_vocabulary/is_model_vocabulary.dart'
+    show FinishedReply, ModelReply;
 import 'package:test/test.dart';
 
 /// An [AsksTheModel] that answers every call the same way, so a test can

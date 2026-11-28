@@ -5,6 +5,11 @@
 import 'dart:typed_data';
 
 import 'package:is_airlock/is_airlock.dart';
+import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart'
+    show RepliesUnderWebAddress, ReplyContent, ReplyEndpoint, ReplyText;
+import 'package:is_sign_in_vocabulary/is_sign_in_vocabulary.dart' show SignIn;
+import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'
+    show AddressPrefix, Origin, PathPrefix, WebPath;
 import 'package:test/test.dart';
 
 final _trajectory = TrajectoryId.of(Uint8List.fromList([1, 2, 3]));
@@ -25,7 +30,7 @@ Decision decideReach(
   TrajectoryId trajectory,
   Reach reach,
   FlightRules rules, {
-  AddressPrefix? replyEndpoint,
+  ReplyEndpoint? replyEndpoint,
 }) {
   final grants = GrantsReaches();
   if (replyEndpoint != null) grants.noteReplyEndpoint(trajectory, replyEndpoint);
@@ -154,7 +159,9 @@ void main() {
         final grants = GrantsReaches();
         grants.noteReplyEndpoint(
           _trajectory,
-          AddressPrefix.of(_site, PathPrefix.parse('/reply/')!),
+          RepliesUnderWebAddress(
+            AddressPrefix.of(_site, PathPrefix.parse('/reply/')!),
+          ),
         );
         final decision = grants.decide(
           _trajectory,
@@ -183,7 +190,9 @@ void main() {
         final grants = GrantsReaches();
         grants.noteReplyEndpoint(
           _trajectory,
-          AddressPrefix.of(_site, PathPrefix.parse('/reply/')!),
+          RepliesUnderWebAddress(
+            AddressPrefix.of(_site, PathPrefix.parse('/reply/')!),
+          ),
         );
         final decision = grants.decide(
           _trajectory,
@@ -193,6 +202,58 @@ void main() {
         expect(decision, isA<Deny>());
       },
     );
+  });
+
+  group('decideReach: RepliesToOwnConversation', () {
+    final content = ReplyContent(text: ReplyText.parse('hi')!);
+    final endpoint = RepliesUnderWebAddress(
+      AddressPrefix.of(_site, PathPrefix.parse('/reply/')!),
+    );
+    final rules = _rules(
+      webRequestsMayReach: [
+        GrantToMakeWebRequests(
+          ToOwnReplyEndpoint.of([_site])!,
+          GoesAsSignIn(_signIn),
+        ),
+      ],
+    );
+
+    test(
+      'allows the reply, granted the trajectory\'s own endpoint, once it is '
+      'noted',
+      () {
+        final grants = GrantsReaches();
+        grants.noteReplyEndpoint(_trajectory, endpoint);
+        final decision = grants.decide(
+          _trajectory,
+          RepliesToOwnConversation(content),
+          rules,
+        );
+        expect(decision, isA<Allow>());
+        final allow = decision as Allow;
+        expect(allow.grantedReply, (to: endpoint, asSignIn: _signIn));
+        expect(allow.grantedPathPrefixes, isEmpty);
+      },
+    );
+
+    test('denies a reply when no replyEndpoint was ever noted', () {
+      final decision = decideReach(
+        _trajectory,
+        RepliesToOwnConversation(content),
+        rules,
+      );
+      expect(decision, isA<Deny>());
+    });
+
+    test('denies a reply when no rule grants this endpoint\'s origin', () {
+      final decision = decideReach(
+        _trajectory,
+        RepliesToOwnConversation(content),
+        _rules(),
+        replyEndpoint: endpoint,
+      );
+      expect(decision, isA<Deny>());
+    });
   });
 
   group('decideReach: FetchesFromWeb', () {

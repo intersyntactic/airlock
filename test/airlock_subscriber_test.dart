@@ -4,8 +4,16 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:is_airlock/is_airlock.dart';
+import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart'
+    show
+        PinnedBodyFields,
+        RepliesUnderWebAddress,
+        RepliesWithPinnedBodyFields,
+        ReplyEndpoint;
 import 'package:is_logbook_client/is_logbook_client.dart';
 import 'package:is_shapes/is_shapes.dart' show MissionId;
+import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'
+    show AddressPrefix, Origin, PathPrefix, WebPath;
 import 'package:test/test.dart';
 
 import 'logbook_service_harness.dart';
@@ -563,7 +571,7 @@ void main() {
         entryOn: entryIndex.entryOn,
       );
 
-      final started = Completer<(TrajectoryId, AddressPrefix?)>();
+      final started = Completer<(TrajectoryId, ReplyEndpoint?)>();
       unawaited(
         runAirlockService(
           subscribe: () => Stream.fromIterable([admitted, const CaughtUp(null)]),
@@ -588,17 +596,19 @@ void main() {
       expect(gotTrajectory, trajectoryId);
       expect(
         gotReplyEndpoint,
-        AddressPrefix.of(
-          Origin.parse('https://smba.trafficmanager.net')!,
-          PathPrefix.parse('/v3/conversations/c/activities/')!,
+        RepliesUnderWebAddress(
+          AddressPrefix.of(
+            Origin.parse('https://smba.trafficmanager.net')!,
+            PathPrefix.parse('/v3/conversations/c/activities/')!,
+          ),
         ),
       );
     },
   );
 
   test(
-    'a Slack replyEndpoint grants nothing here (task 75 not yet built), '
-    'rather than being misread as a web address',
+    'passes a Slack replyEndpoint through too, for its own grant to read '
+    '(task 90: no longer narrowed to a web address here)',
     () async {
       final admittedBody = Uint8List.fromList(
         utf8.encode(
@@ -632,7 +642,7 @@ void main() {
         entryOn: entryIndex.entryOn,
       );
 
-      final started = Completer<(TrajectoryId, AddressPrefix?)>();
+      final started = Completer<(TrajectoryId, ReplyEndpoint?)>();
       unawaited(
         runAirlockService(
           subscribe: () => Stream.fromIterable([admitted, const CaughtUp(null)]),
@@ -655,7 +665,17 @@ void main() {
         const Duration(seconds: 2),
       );
       expect(gotTrajectory, trajectoryId);
-      expect(gotReplyEndpoint, isNull);
+      expect(
+        gotReplyEndpoint,
+        RepliesWithPinnedBodyFields.at(
+          origin: Origin.parse('https://slack.com')!,
+          path: WebPath.parse('/api/chat.postMessage')!,
+          pinned: PinnedBodyFields.of(
+            {'channel': 'C1234567'},
+            mustBeAbsent: const {'thread_ts'},
+          )!,
+        ),
+      );
     },
   );
 

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:is_airlock/is_airlock.dart';
+import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'
+    show Origin, PathPrefix, WebPath;
 import 'package:test/test.dart';
 
 final _origin = Origin.parse('https://api.example')!;

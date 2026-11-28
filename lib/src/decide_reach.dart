@@ -1,6 +1,11 @@
 import 'package:is_airlock_api/is_airlock_api.dart';
+import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart'
+    show ReplyEndpoint;
 import 'package:is_effects/is_effects.dart';
 import 'package:is_flight_rules/is_flight_rules.dart';
+import 'package:is_sign_in_vocabulary/is_sign_in_vocabulary.dart' show SignIn;
+import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'
+    show Origin, PathPrefix, WebPath;
 
 /// Every production grant the airlock service makes, under the rules given
 /// to [decide] and the replyEndpoint [noteReplyEndpoint] recorded for the
@@ -21,12 +26,12 @@ import 'package:is_flight_rules/is_flight_rules.dart';
 /// trajectory, rather than threaded through a signature this package does
 /// not own.
 final class GrantsReaches {
-  final _replyEndpointOf = <TrajectoryId, AddressPrefix?>{};
+  final _replyEndpointOf = <TrajectoryId, ReplyEndpoint?>{};
 
   /// [trajectory]'s own replyEndpoint, read from the admitted entry that
   /// started it — where replies to the event that opened it go, or null
   /// when it named none.
-  void noteReplyEndpoint(TrajectoryId trajectory, AddressPrefix? replyEndpoint) {
+  void noteReplyEndpoint(TrajectoryId trajectory, ReplyEndpoint? replyEndpoint) {
     _replyEndpointOf[trajectory] = replyEndpoint;
   }
 
@@ -46,6 +51,8 @@ final class GrantsReaches {
     ),
     FetchesFromWeb(:final origin, :final path, :final signIn) =>
       grantFetch(rules.whatMayLeaveThisMachine, origin, path, signIn),
+    RepliesToOwnConversation() =>
+      grantReply(rules.whatMayLeaveThisMachine, _replyEndpointOf[trajectory]),
     CallsTheModel(:final signIn) => rules.whatMayLeaveThisMachine.allowsModelCall(signIn)
         ? const Allow.withNoPaths(by: DecidedBy.rules)
         : Deny('not granted: model calls as $signIn', by: DecidedBy.rules),
@@ -63,7 +70,7 @@ final class GrantsReaches {
 Decision grantEachWebRequest(
   WhatMayLeaveThisMachine rules,
   List<ProposedRequest> requests, {
-  required AddressPrefix? replyEndpoint,
+  required ReplyEndpoint? replyEndpoint,
 }) {
   final prefixes = <PathPrefix>[];
   for (final request in requests) {
@@ -85,6 +92,29 @@ Decision grantEachWebRequest(
     }
   }
   return Allow(by: DecidedBy.rules, grantedPathPrefixes: prefixes);
+}
+
+/// Whether [rules] lets a reply go to [replyEndpoint], the trajectory's own:
+/// denied outright with no endpoint, since there is nowhere granted to post
+/// to; otherwise [Allow.toReplyTo] as whichever sign-in
+/// [WhatMayLeaveThisMachine.signInForReply] lets it go as, or denied when
+/// none can.
+Decision grantReply(WhatMayLeaveThisMachine rules, ReplyEndpoint? replyEndpoint) {
+  if (replyEndpoint == null) {
+    return const Deny(
+      'not granted: no reply endpoint for this trajectory',
+      by: DecidedBy.rules,
+    );
+  }
+  final signIn = rules.signInForReply(
+    replyEndpoint: replyEndpoint,
+    leasedNow: const {},
+    pooled: const {},
+  );
+  if (signIn == null) {
+    return Deny('not granted: no sign-in to reply as', by: DecidedBy.rules);
+  }
+  return Allow.toReplyTo(replyEndpoint, asSignIn: signIn, by: DecidedBy.rules);
 }
 
 /// Whether [rules] grants a fetch to [path] on [origin] as [signIn].

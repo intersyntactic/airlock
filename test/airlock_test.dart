@@ -3,7 +3,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:is_airlock/is_airlock.dart';
+import 'package:is_conversation_vocabulary/is_conversation_vocabulary.dart';
 import 'package:is_logbook/is_logbook.dart' show Intact, ObjectId;
+import 'package:is_sign_in_vocabulary/is_sign_in_vocabulary.dart' show SignIn;
+import 'package:is_web_address_vocabulary/is_web_address_vocabulary.dart'
+    show AddressPrefix, Origin, PathPrefix, WebPath;
 import 'package:test/test.dart';
 
 import 'logbook_service_harness.dart';
@@ -47,6 +51,78 @@ final class _FakeWebDriver implements CarriesOutWebRequests {
   Future<Outcome<WebResponse>> carryOutWebRequest(
     GrantedRequest request,
   ) async => onSend(request);
+}
+
+/// A [WritesReplyRequests] that draws exactly one POST to [to]'s
+/// address for [content]'s text, and reads the id a fake response names.
+final class _FakeWebAddressReplies
+    implements WritesReplyRequests<RepliesUnderWebAddress> {
+  @override
+  List<ProposedRequest> draw(
+    RepliesUnderWebAddress to,
+    TrajectoryId trajectory,
+    ReplyContent content,
+  ) => [
+    ProposedRequest(
+      to.prefix.origin,
+      method: Method.post,
+      path: WebPath.parse(to.prefix.pathPrefix.value)!,
+      body: content.text.value,
+    ),
+  ];
+
+  @override
+  Outcome<ServerAssignedMessageId> posted(WebResponse response) =>
+      switch (response.created) {
+        final String id? => Ran(ServerAssignedMessageId.parse(id)!),
+        null => const NothingRan('no id in the response'),
+      };
+}
+
+/// A [WritesPinnedBodyReplyRequests] that draws exactly one POST to [to]'s
+/// address, with the body [bodyFor] gives for [content] — so a test can
+/// draw a body that does, or doesn't, admit the endpoint it was granted.
+final class _FakePinnedBodyReplies implements WritesPinnedBodyReplyRequests {
+  _FakePinnedBodyReplies(
+    this.addresses,
+    this.bodyFor, {
+    this.contentType = 'application/json',
+    this.extraHeaders = const {},
+  });
+
+  @override
+  final Set<({Origin origin, WebPath path})> addresses;
+
+  final String Function(ReplyContent content) bodyFor;
+  final String contentType;
+
+  /// Headers beside `content-type`, with its own exact casing: a test can
+  /// draw a second name that only folds to `content-type` under
+  /// case-insensitive matching, which `ProposedRequest` itself never
+  /// refuses.
+  final Map<String, String> extraHeaders;
+
+  @override
+  List<ProposedRequest> draw(
+    RepliesWithPinnedBodyFields to,
+    TrajectoryId trajectory,
+    ReplyContent content,
+  ) => [
+    ProposedRequest(
+      to.origin,
+      method: Method.post,
+      path: to.path,
+      headers: {'content-type': contentType, ...extraHeaders},
+      body: bodyFor(content),
+    ),
+  ];
+
+  @override
+  Outcome<ServerAssignedMessageId> posted(WebResponse response) =>
+      switch (response.created) {
+        final String id? => Ran(ServerAssignedMessageId.parse(id)!),
+        null => const NothingRan('no id in the response'),
+      };
 }
 
 /// The bytes of every entry the harness's logbook holds, in order, read
@@ -138,6 +214,8 @@ void main() {
     Airlock<String, int> a, {
     String rules = 'rules',
     Outcome<WebResponse> Function(GrantedRequest request)? onSend,
+    WritesReplyRequests<RepliesUnderWebAddress>? webAddressReplies,
+    PinnedBodyReplyWriters? pinnedBodyReplies,
   }) => Trajectory<String, int>(
     id: _id('conv-1'),
     drivers: [
@@ -147,17 +225,16 @@ void main() {
     airlock: a,
     rules: rules,
     suit: Suit.parse('suit-1')!,
+    webAddressReplies: webAddressReplies,
+    pinnedBodyReplies: pinnedBodyReplies,
   );
 
-  /// The crux for one action at [place] on [trajectory], driving a real run
-  /// through the trajectory's own `consider` — the only way to reach a
-  /// result the library produces itself, since its constructor is private —
-  /// by writing a made-up `action-proposed-by-agent-loop` body through
-  /// [Crux.forTheModelCall] (one action per crux, matching `.at`'s old
-  /// one-place-per-call shape) and reading the real outcome entry
-  /// [trajectory]'s airlock wrote back for it.
-  Crux at(Trajectory<String, int> trajectory, int place) =>
-      Crux.forTheModelCall(_DirectLink(trajectory, place, harness), turn: place);
+  /// A [ProposesActions] for one action at [place] on [trajectory], driving
+  /// a real run through the trajectory's own `consider` — the only way to
+  /// reach a result the library produces itself, since its constructor is
+  /// private.
+  ProposesActions at(Trajectory<String, int> trajectory, int place) =>
+      _DirectLink(trajectory, place);
 
   test('decide delegates to the rules given to it', () async {
     var decided = false;
@@ -402,41 +479,360 @@ void main() {
       expect(read!.proposed, proposedId);
     },
   );
+
+  test(
+    'a ReplyToOwnConversation allowed with a grantedReply posts through '
+    'the writer this trajectory has for its endpoint, as the granted '
+    'sign-in',
+    () async {
+      final endpoint = RepliesUnderWebAddress(
+        AddressPrefix.of(
+          Origin.parse('https://smba.trafficmanager.net')!,
+          PathPrefix.parse('/v3/conversations/c/activities/')!,
+        ),
+      );
+      final signIn = SignIn.parse('cam-teams')!;
+      final a = airlock(
+        decide: (trajectory, reach, rules) => switch (reach) {
+          RepliesToOwnConversation() => Allow.toReplyTo(
+            endpoint,
+            asSignIn: signIn,
+            by: DecidedBy.rules,
+          ),
+          _ => const Allow.withNoPaths(by: DecidedBy.rules),
+        },
+      );
+      final trajectory = path(
+        a,
+        webAddressReplies: _FakeWebAddressReplies(),
+        onSend: (request) {
+          expect(request.proposed.signIn, signIn);
+          return const Ran(WebResponse(status: 200, created: 'msg-1'));
+        },
+      );
+
+      final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
+        ReplyContent(text: ReplyText.parse('hi')!),
+        then: Done.new,
+      );
+      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
+      expect(sent.value, isA<Ran<List<PostedMessage>>>());
+      expect(
+        (sent.value as Ran<List<PostedMessage>>).output,
+        [
+          PostedUnderWebAddress.answering(
+            endpoint,
+            ServerAssignedMessageId.parse('msg-1')!,
+          ),
+        ],
+      );
+    },
+  );
+
+  test(
+    'a ReplyToOwnConversation allowed with no writer for its endpoint '
+    'runs nothing, as this machine cannot run it',
+    () async {
+      final endpoint = RepliesWithPinnedBodyFields.at(
+        origin: Origin.parse('https://slack.com')!,
+        path: WebPath.parse('/api/chat.postMessage')!,
+        pinned: PinnedBodyFields.of({'channel': 'C1234567'})!,
+      )!;
+      final a = airlock(
+        decide: (trajectory, reach, rules) => switch (reach) {
+          RepliesToOwnConversation() => Allow.toReplyTo(
+            endpoint,
+            asSignIn: SignIn.parse('bot-sign-in')!,
+            by: DecidedBy.rules,
+          ),
+          _ => const Allow.withNoPaths(by: DecidedBy.rules),
+        },
+      );
+      // No pinnedBodyReplies writer passed to path(), so nothing can run this.
+      final trajectory = path(a);
+
+      final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
+        ReplyContent(text: ReplyText.parse('hi')!),
+        then: Done.new,
+      );
+      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
+      expect(sent.value, isA<NothingRan>());
+      expect(
+        (sent.value as NothingRan).why,
+        contains('this machine cannot run'),
+      );
+    },
+  );
+
+  test(
+    'a ReplyToOwnConversation to a pinned-body endpoint is refused when '
+    "the writer's drawn body does not carry its conversation's fields — a "
+    'wrong channel, same as an added reply_broadcast would be',
+    () async {
+      final endpoint = RepliesWithPinnedBodyFields.at(
+        origin: Origin.parse('https://slack.com')!,
+        path: WebPath.parse('/api/chat.postMessage')!,
+        pinned: PinnedBodyFields.of({'channel': 'C1234567'})!,
+      )!;
+      final signIn = SignIn.parse('bot-sign-in')!;
+      final a = airlock(
+        decide: (trajectory, reach, rules) => switch (reach) {
+          RepliesToOwnConversation() => Allow.toReplyTo(
+            endpoint,
+            asSignIn: signIn,
+            by: DecidedBy.rules,
+          ),
+          _ => const Allow.withNoPaths(by: DecidedBy.rules),
+        },
+      );
+      final trajectory = path(
+        a,
+        pinnedBodyReplies: PinnedBodyReplyWriters.of([
+          _FakePinnedBodyReplies(
+            {(origin: endpoint.origin, path: endpoint.path)},
+            // Wrong channel: the same shape of mistake as a drawing that
+            // adds reply_broadcast — a body that doesn't carry this
+            // endpoint's own conversation.
+            (content) => jsonEncode({
+              'channel': 'C_WRONG_CHANNEL',
+              'text': content.text.value,
+            }),
+          ),
+        ]),
+        onSend: (request) {
+          fail('must not send: the drawn body does not admit the endpoint');
+        },
+      );
+
+      final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
+        ReplyContent(text: ReplyText.parse('hi')!),
+        then: Done.new,
+      );
+      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
+      expect(sent.value, isA<NothingRan>());
+      expect(
+        (sent.value as NothingRan).why,
+        contains("is not the reply endpoint's conversation"),
+      );
+    },
+  );
+
+  test(
+    'a ReplyToOwnConversation to a pinned-body endpoint posts when the '
+    "writer's drawn body carries its conversation's fields, even with a "
+    'charset parameter on content-type',
+    () async {
+      final endpoint = RepliesWithPinnedBodyFields.at(
+        origin: Origin.parse('https://slack.com')!,
+        path: WebPath.parse('/api/chat.postMessage')!,
+        pinned: PinnedBodyFields.of({'channel': 'C1234567'})!,
+      )!;
+      final signIn = SignIn.parse('bot-sign-in')!;
+      final a = airlock(
+        decide: (trajectory, reach, rules) => switch (reach) {
+          RepliesToOwnConversation() => Allow.toReplyTo(
+            endpoint,
+            asSignIn: signIn,
+            by: DecidedBy.rules,
+          ),
+          _ => const Allow.withNoPaths(by: DecidedBy.rules),
+        },
+      );
+      final trajectory = path(
+        a,
+        pinnedBodyReplies: PinnedBodyReplyWriters.of([
+          _FakePinnedBodyReplies(
+            {(origin: endpoint.origin, path: endpoint.path)},
+            (content) => jsonEncode({
+              'channel': 'C1234567',
+              'text': content.text.value,
+            }),
+            contentType: 'application/json; charset=utf-8',
+          ),
+        ]),
+        onSend: (request) {
+          expect(request.proposed.signIn, signIn);
+          return const Ran(WebResponse(status: 200, created: 'msg-2'));
+        },
+      );
+
+      final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
+        ReplyContent(text: ReplyText.parse('hi')!),
+        then: Done.new,
+      );
+      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
+      expect(sent.value, isA<Ran<List<PostedMessage>>>());
+      expect(
+        (sent.value as Ran<List<PostedMessage>>).output,
+        [
+          PostedWithPinnedBodyFields.answering(
+            endpoint,
+            ServerAssignedMessageId.parse('msg-2')!,
+          ),
+        ],
+      );
+    },
+  );
+
+  test(
+    'a ReplyToOwnConversation to a pinned-body endpoint is refused when the '
+    "writer's drawn request carries two headers that both fold to "
+    'content-type, even though one of them alone would admit the body',
+    () async {
+      final endpoint = RepliesWithPinnedBodyFields.at(
+        origin: Origin.parse('https://slack.com')!,
+        path: WebPath.parse('/api/chat.postMessage')!,
+        pinned: PinnedBodyFields.of({'channel': 'C1234567'})!,
+      )!;
+      final signIn = SignIn.parse('bot-sign-in')!;
+      final a = airlock(
+        decide: (trajectory, reach, rules) => switch (reach) {
+          RepliesToOwnConversation() => Allow.toReplyTo(
+            endpoint,
+            asSignIn: signIn,
+            by: DecidedBy.rules,
+          ),
+          _ => const Allow.withNoPaths(by: DecidedBy.rules),
+        },
+      );
+      final trajectory = path(
+        a,
+        pinnedBodyReplies: PinnedBodyReplyWriters.of([
+          _FakePinnedBodyReplies(
+            {(origin: endpoint.origin, path: endpoint.path)},
+            (content) => jsonEncode({
+              'channel': 'C1234567',
+              'text': content.text.value,
+            }),
+            // The admitted name: on its own, this body and content-type
+            // would pass admitsBody.
+            contentType: 'application/json',
+            // A second name that only folds to `content-type` under
+            // case-insensitive matching — `ProposedRequest` doesn't refuse
+            // this, since `validatedHeaders` only checks names against the
+            // credential list, never against each other.
+            extraHeaders: const {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+          ),
+        ]),
+        onSend: (request) {
+          fail('must not send: the request names content-type twice');
+        },
+      );
+
+      final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
+        ReplyContent(text: ReplyText.parse('hi')!),
+        then: Done.new,
+      );
+      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
+      expect(sent.value, isA<NothingRan>());
+      expect(
+        (sent.value as NothingRan).why,
+        contains("is not the reply endpoint's conversation"),
+      );
+    },
+  );
+
+  test(
+    'PinnedBodyReplyWriters.of refuses two writers that claim one address, '
+    'and accepts two that claim different paths on one origin',
+    () {
+      final slack = _FakePinnedBodyReplies(
+        {
+          (
+            origin: Origin.parse('https://slack.com')!,
+            path: WebPath.parse('/api/chat.postMessage')!,
+          ),
+        },
+        (content) => '{}',
+      );
+      final alsoSlack = _FakePinnedBodyReplies(
+        {
+          (
+            origin: Origin.parse('https://slack.com')!,
+            path: WebPath.parse('/api/chat.postMessage')!,
+          ),
+        },
+        (content) => '{}',
+      );
+      expect(PinnedBodyReplyWriters.of([slack, alsoSlack]), isNull);
+
+      // Meta's case: WhatsApp and Messenger share an origin, different
+      // paths — distinct addresses, so both writers may coexist.
+      final whatsApp = _FakePinnedBodyReplies(
+        {
+          (
+            origin: Origin.parse('https://graph.facebook.com')!,
+            path: WebPath.parse('/v20.0/messages')!,
+          ),
+        },
+        (content) => '{}',
+      );
+      final messenger = _FakePinnedBodyReplies(
+        {
+          (
+            origin: Origin.parse('https://graph.facebook.com')!,
+            path: WebPath.parse('/v20.0/me/messages')!,
+          ),
+        },
+        (content) => '{}',
+      );
+      final writers = PinnedBodyReplyWriters.of([whatsApp, messenger]);
+      expect(writers, isNotNull);
+      expect(
+        writers!.writerFor(
+          RepliesWithPinnedBodyFields.at(
+            origin: Origin.parse('https://graph.facebook.com')!,
+            path: WebPath.parse('/v20.0/messages')!,
+            pinned: PinnedBodyFields.of({'to': '1'})!,
+          )!,
+        ),
+        whatsApp,
+      );
+      expect(
+        writers.writerFor(
+          RepliesWithPinnedBodyFields.at(
+            origin: Origin.parse('https://graph.facebook.com')!,
+            path: WebPath.parse('/v20.0/me/messages')!,
+            pinned: PinnedBodyFields.of({'recipient': '1'})!,
+          )!,
+        ),
+        messenger,
+      );
+    },
+  );
 }
 
-/// Drives one action of a crux through a real [Trajectory]'s own
+/// Proposes one action straight through a real [Trajectory]'s own
 /// `consider`, the only way to reach a result [Airlock] produces itself
-/// (its constructor is private): [writeProposal] hands the crux's own
-/// `ActionProposedByAgentLoop` json straight to `consider`, tagged with a
-/// made-up [EntryId] unique to this link, and [outcomeNaming] reads back
-/// the real `outcome-of-proposed-action` entry the airlock wrote for it
-/// out of the harness's own logbook. Good for one action — one crux is
-/// built per call to [AirlockTestHelpers.at], same as `.at` fixed one
-/// place per call before `Crux` existed.
-final class _DirectLink implements ProposesActionsThroughTheLogbook {
-  _DirectLink(this.trajectory, this.place, this.harness);
+/// (its constructor is private): builds the program's own proposal body,
+/// reads it back as an [ActionProposedByAgentLoop] exactly as the real
+/// logbook-reading path would, tags it with a made-up [EntryId] unique to
+/// this call, and reads the outcome [Trajectory._consider] publishes on
+/// [Trajectory.results] for it. Good for one action — one link is built
+/// per call to [AirlockTestHelpers.at].
+final class _DirectLink implements ProposesActions {
+  const _DirectLink(this.trajectory, this.place);
 
   final Trajectory<String, int> trajectory;
   final int place;
-  final LogbookServiceHarness harness;
 
   @override
-  Future<EntryId> writeProposal(String body) async {
+  Future<Outcome<O>> propose<I, O>(Program<I, O> program, I input) async {
+    final body = program.proposal(input, at: ProposedForTheModelCall.at(place));
     final proposal = ActionProposedByAgentLoop.read(body);
     if (proposal is! ActionProposedByAgentLoop) {
       throw StateError('test built an unreadable proposal: $body');
     }
     final proposed = EntryId.of(utf8.encode('direct-link-$place-$body'));
-    await trajectory.consider(proposal, place, proposed: proposed);
-    return proposed;
-  }
-
-  @override
-  Future<String> outcomeNaming(EntryId proposed) async {
-    final lines = _entries(harness.journalDir).map(utf8.decode);
-    final line = lines.firstWhere(
-      (l) => l.contains('"proposed":"${proposed.hex}"'),
+    final result = trajectory.results.firstWhere(
+      (r) => r.decision.proposed == proposed,
     );
-    return line.substring(line.indexOf('{'));
+    await trajectory.consider(proposal, place, proposed: proposed);
+    // cast-ok: the stream type-erases to Outcome<Object?>, but this entry
+    // is the one `consider` just wrote for `program`, so its outcome is
+    // always an Outcome<O>.
+    return (await result).result as Outcome<O>;
   }
 }
