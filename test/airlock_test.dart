@@ -83,12 +83,17 @@ final class _FakeWebAddressReplies
 /// address, with the body [bodyFor] gives for [content] — so a test can
 /// draw a body that does, or doesn't, admit the endpoint it was granted.
 final class _FakePinnedBodyReplies implements WritesPinnedBodyReplyRequests {
-  _FakePinnedBodyReplies(this.addresses, this.bodyFor);
+  _FakePinnedBodyReplies(
+    this.addresses,
+    this.bodyFor, {
+    this.contentType = 'application/json',
+  });
 
   @override
   final Set<({Origin origin, WebPath path})> addresses;
 
   final String Function(ReplyContent content) bodyFor;
+  final String contentType;
 
   @override
   List<ProposedRequest> draw(
@@ -100,7 +105,7 @@ final class _FakePinnedBodyReplies implements WritesPinnedBodyReplyRequests {
       to.origin,
       method: Method.post,
       path: to.path,
-      headers: const {'content-type': 'application/json'},
+      headers: {'content-type': contentType},
       body: bodyFor(content),
     ),
   ];
@@ -601,6 +606,132 @@ void main() {
       expect(
         (sent.value as NothingRan).why,
         contains("is not the reply endpoint's conversation"),
+      );
+    },
+  );
+
+  test(
+    'a ReplyToOwnConversation to a pinned-body endpoint posts when the '
+    "writer's drawn body carries its conversation's fields, even with a "
+    'charset parameter on content-type',
+    () async {
+      final endpoint = RepliesWithPinnedBodyFields.at(
+        origin: Origin.parse('https://slack.com')!,
+        path: WebPath.parse('/api/chat.postMessage')!,
+        pinned: PinnedBodyFields.of({'channel': 'C1234567'})!,
+      )!;
+      final signIn = SignIn.parse('bot-sign-in')!;
+      final a = airlock(
+        decide: (trajectory, reach, rules) => switch (reach) {
+          RepliesToOwnConversation() => Allow.toReplyTo(
+            endpoint,
+            asSignIn: signIn,
+            by: DecidedBy.rules,
+          ),
+          _ => const Allow.withNoPaths(by: DecidedBy.rules),
+        },
+      );
+      final trajectory = path(
+        a,
+        pinnedBodyReplies: PinnedBodyReplyWriters.of([
+          _FakePinnedBodyReplies(
+            {(origin: endpoint.origin, path: endpoint.path)},
+            (content) => jsonEncode({
+              'channel': 'C1234567',
+              'text': content.text.value,
+            }),
+            contentType: 'application/json; charset=utf-8',
+          ),
+        ]),
+        onSend: (request) {
+          expect(request.proposed.signIn, signIn);
+          return const Ran(WebResponse(status: 200, created: 'msg-2'));
+        },
+      );
+
+      final run = Program.replyToOwnConversation.run<Outcome<List<PostedMessage>>>(
+        ReplyContent(text: ReplyText.parse('hi')!),
+        then: Done.new,
+      );
+      final sent = (await run.next(at(trajectory, 1))) as Done<Outcome<List<PostedMessage>>>;
+      expect(sent.value, isA<Ran<List<PostedMessage>>>());
+      expect(
+        (sent.value as Ran<List<PostedMessage>>).output,
+        [
+          PostedWithPinnedBodyFields.answering(
+            endpoint,
+            ServerAssignedMessageId.parse('msg-2')!,
+          ),
+        ],
+      );
+    },
+  );
+
+  test(
+    'PinnedBodyReplyWriters.of refuses two writers that claim one address, '
+    'and accepts two that claim different paths on one origin',
+    () {
+      final slack = _FakePinnedBodyReplies(
+        {
+          (
+            origin: Origin.parse('https://slack.com')!,
+            path: WebPath.parse('/api/chat.postMessage')!,
+          ),
+        },
+        (content) => '{}',
+      );
+      final alsoSlack = _FakePinnedBodyReplies(
+        {
+          (
+            origin: Origin.parse('https://slack.com')!,
+            path: WebPath.parse('/api/chat.postMessage')!,
+          ),
+        },
+        (content) => '{}',
+      );
+      expect(PinnedBodyReplyWriters.of([slack, alsoSlack]), isNull);
+
+      // Meta's case: WhatsApp and Messenger share an origin, different
+      // paths — distinct addresses, so both writers may coexist.
+      final whatsApp = _FakePinnedBodyReplies(
+        {
+          (
+            origin: Origin.parse('https://graph.facebook.com')!,
+            path: WebPath.parse('/v20.0/messages')!,
+          ),
+        },
+        (content) => '{}',
+      );
+      final messenger = _FakePinnedBodyReplies(
+        {
+          (
+            origin: Origin.parse('https://graph.facebook.com')!,
+            path: WebPath.parse('/v20.0/me/messages')!,
+          ),
+        },
+        (content) => '{}',
+      );
+      final writers = PinnedBodyReplyWriters.of([whatsApp, messenger]);
+      expect(writers, isNotNull);
+      expect(
+        writers!.writerFor(
+          RepliesWithPinnedBodyFields.at(
+            origin: Origin.parse('https://graph.facebook.com')!,
+            path: WebPath.parse('/v20.0/messages')!,
+            pinned: PinnedBodyFields.of({'to': '1'})!,
+          )!,
+        ),
+        whatsApp,
+      );
+      expect(
+        writers.writerFor(
+          RepliesWithPinnedBodyFields.at(
+            origin: Origin.parse('https://graph.facebook.com')!,
+            path: WebPath.parse('/v20.0/me/messages')!,
+            pinned: PinnedBodyFields.of({'recipient': '1'})!,
+          )!,
+        ),
+        messenger,
       );
     },
   );

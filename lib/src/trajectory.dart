@@ -399,11 +399,6 @@ Future<Outcome<ModelReply>> _ask(
   };
 }
 
-/// The body of [entry], which must belong to [trajectory] and be of [kind],
-/// as [DecidesActionsAndWritesToTheLogbook.entryOn] reads it; or
-/// [NothingRan] with why not, since a read leaves the world as it was. The
-/// kind is checked, since a loop may write a body of any shape under its
-/// own kinds on its own chain.
 /// [name]'s value in [headers], matched without regard to case, as HTTP
 /// header names are; null when [headers] has none. A request draws its own
 /// headers once each (is_effects' [ProposedRequest]), so there is never a
@@ -415,6 +410,11 @@ String? _header(Map<String, String> headers, String name) {
   return null;
 }
 
+/// The body of [entry], which must belong to [trajectory] and be of [kind],
+/// as [DecidesActionsAndWritesToTheLogbook.entryOn] reads it; or
+/// [NothingRan] with why not, since a read leaves the world as it was. The
+/// kind is checked, since a loop may write a body of any shape under its
+/// own kinds on its own chain.
 Future<Outcome<String>> _bodyOf(
   Trajectory<Object?, Object?> trajectory,
   EntryId entry,
@@ -460,11 +460,10 @@ Future<Outcome<List<PostedMessage>>> _postReply<Id>(
     }
     if (to case RepliesWithPinnedBodyFields pinned) {
       final contentType = _header(request.headers, 'content-type');
+      final body = request.body;
       if (contentType == null ||
-          !pinned.admitsBody(
-            contentType: contentType,
-            body: request.body ?? '',
-          )) {
+          body == null ||
+          !pinned.admitsBody(contentType: contentType, body: body)) {
         return NothingRan(
           "$at: its content-type or body is not the reply endpoint's "
           'conversation',

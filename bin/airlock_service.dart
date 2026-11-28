@@ -149,6 +149,11 @@ Future<void> main() async {
     // replies are unaffected — they go through agent_loop's
     // teams-reply-drawing and the ordinary MakesWebRequests grant, never
     // through this path.
+    //
+    // When pinned-body writers are wired here, build their collection as
+    // `PinnedBodyReplyWriters.of(writers) ?? (throw StateError('two reply
+    // writers claim one address'))` — a collision must stop the service,
+    // not silently turn pinned replies off (airlock-api-b2, 28 Nov).
   );
 }
 
